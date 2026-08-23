@@ -250,8 +250,13 @@ fun PlaylistMenu(
                         database.transaction {
                             
                             if (playlist.playlist.bookmarkedAt != null) {
-                                
-                                update(playlist.playlist.toggleLike())
+                                val updatedPlaylist = playlist.playlist.toggleLike()
+                                update(updatedPlaylist)
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    updatedPlaylist.browseId?.let { browseId ->
+                                        YouTube.likePlaylist(browseId, updatedPlaylist.bookmarkedAt != null)
+                                    }
+                                }
                             }
                             
                             delete(playlist.playlist)
@@ -276,8 +281,14 @@ fun PlaylistMenu(
             if (playlist.playlist.isEditable != true) {
                 IconButton(
                     onClick = {
+                        val updatedPlaylist = dbPlaylist?.playlist?.toggleLike()
                         database.query {
-                            dbPlaylist?.playlist?.toggleLike()?.let { update(it) }
+                            updatedPlaylist?.let { update(it) }
+                        }
+                        coroutineScope.launch(Dispatchers.IO) {
+                            updatedPlaylist?.browseId?.let { browseId ->
+                                YouTube.likePlaylist(browseId, updatedPlaylist.bookmarkedAt != null)
+                            }
                         }
                     }
                 ) {

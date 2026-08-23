@@ -43,6 +43,7 @@ import com.auriqo.music.ui.component.YouTubeListItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import com.music.innertube.YouTube
 
 @OptIn(ExperimentalMaterial3Api::class)
 
@@ -179,18 +180,31 @@ fun YouTubeArtistMenu(
                             )
                         },
                         onClick = {
+                            val updatedArtist = libraryArtist?.artist?.toggleLike()
+                            val newArtist = if (updatedArtist == null) {
+                                ArtistEntity(
+                                    id = artist.id,
+                                    name = artist.title,
+                                    channelId = artist.channelId,
+                                    thumbnailUrl = artist.thumbnail,
+                                ).toggleLike()
+                            } else {
+                                updatedArtist
+                            }
                             database.query {
-                                val libraryArtist = libraryArtist
-                                if (libraryArtist != null) {
-                                    update(libraryArtist.artist.toggleLike())
+                                if (updatedArtist != null) {
+                                    update(newArtist)
                                 } else {
-                                    insert(
-                                        ArtistEntity(
-                                            id = artist.id,
-                                            name = artist.title,
-                                            channelId = artist.channelId,
-                                            thumbnailUrl = artist.thumbnail,
-                                        ).toggleLike()
+                                    insert(newArtist)
+                                }
+                            }
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val targetChannelId = newArtist.channelId
+                                    ?: YouTube.getChannelId(newArtist.id)
+                                if (targetChannelId.isNotEmpty()) {
+                                    YouTube.subscribeChannel(
+                                        targetChannelId,
+                                        newArtist.bookmarkedAt != null,
                                     )
                                 }
                             }

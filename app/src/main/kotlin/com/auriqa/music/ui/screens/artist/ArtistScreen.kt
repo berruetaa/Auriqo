@@ -521,19 +521,34 @@ fun ArtistScreen(
                                     ToggleButton(
                                         checked = libraryArtist?.artist?.bookmarkedAt != null,
                                         onCheckedChange = {
+                                            val updatedArtist = libraryArtist?.artist?.toggleLike()
+                                            val newArtist = if (updatedArtist == null) {
+                                                artistPage?.artist?.let {
+                                                    ArtistEntity(
+                                                        id = it.id,
+                                                        name = it.title,
+                                                        channelId = it.channelId,
+                                                        thumbnailUrl = it.thumbnail,
+                                                    ).toggleLike()
+                                                }
+                                            } else {
+                                                updatedArtist
+                                            }
                                             database.transaction {
-                                                val artist = libraryArtist?.artist
-                                                if (artist != null) {
-                                                    update(artist.toggleLike())
+                                                if (updatedArtist != null) {
+                                                    update(updatedArtist)
                                                 } else {
-                                                    artistPage?.artist?.let {
-                                                        insert(
-                                                            ArtistEntity(
-                                                                id = it.id,
-                                                                name = it.title,
-                                                                channelId = it.channelId,
-                                                                thumbnailUrl = it.thumbnail,
-                                                            ).toggleLike()
+                                                    newArtist?.let(::insert)
+                                                }
+                                            }
+                                            newArtist?.let { artistToSync ->
+                                                coroutineScope.launch(Dispatchers.IO) {
+                                                    val targetChannelId = artistToSync.channelId
+                                                        ?: YouTube.getChannelId(artistToSync.id)
+                                                    if (targetChannelId.isNotEmpty()) {
+                                                        YouTube.subscribeChannel(
+                                                            targetChannelId,
+                                                            artistToSync.bookmarkedAt != null,
                                                         )
                                                     }
                                                 }

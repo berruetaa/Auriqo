@@ -336,10 +336,12 @@ fun AddToPlaylistDialogOnline(
                                                         val firstSongEnt = firstSong.toMediaMetadata().toSongEntity()
                                                         withContext(Dispatchers.IO) {
                                                             try {
+                                                                val likedSong = firstSongEnt.toggleLike()
                                                                 database.insert(firstSongMedia)
                                                                 database.query {
-                                                                    update(firstSongEnt.toggleLike())
+                                                                    update(likedSong)
                                                                 }
+                                                                YouTube.likeVideo(likedSong.id, likedSong.liked)
                                                             } catch (e: Exception) {
                                                                 Timber.tag("Exception inserting song in database:")
                                                                     .e(e.toString())

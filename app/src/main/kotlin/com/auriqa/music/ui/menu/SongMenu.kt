@@ -557,6 +557,10 @@ fun SongMenu(
                                     }
                                 }
 
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    YouTube.toggleSongLibrary(song.id, !isInLibrary)
+                                }
+
                                 database.query {
                                     update(song.song.toggleLibrary())
                                 }

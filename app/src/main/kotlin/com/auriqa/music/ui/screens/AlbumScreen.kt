@@ -123,6 +123,8 @@ import com.auriqo.music.ui.menu.AlbumMenu
 import com.auriqo.music.ui.menu.SelectionSongMenu
 import com.auriqo.music.ui.menu.SongMenu
 import com.auriqo.music.ui.menu.YouTubeAlbumMenu
+import com.music.innertube.YouTube
+import kotlinx.coroutines.launch
 import com.auriqo.music.ui.utils.backToMain
 import com.auriqo.music.ui.utils.fadingEdge
 import com.auriqo.music.ui.player.CanvasArtworkPlayer
@@ -488,8 +490,14 @@ fun AlbumScreen(
                         
                         Surface(
                             onClick = {
+                                val updatedAlbum = albumWithSongs.album.toggleLike()
                                 database.query {
-                                    update(albumWithSongs.album.toggleLike())
+                                    update(updatedAlbum)
+                                }
+                                coroutineScope.launch {
+                                    updatedAlbum.playlistId?.let { playlistId ->
+                                        YouTube.likePlaylist(playlistId, updatedAlbum.bookmarkedAt != null)
+                                    }
                                 }
                             },
                             shape = CircleShape,

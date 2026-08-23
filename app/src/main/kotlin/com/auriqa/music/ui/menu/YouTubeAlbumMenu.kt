@@ -247,8 +247,14 @@ fun YouTubeAlbumMenu(
         trailingContent = {
             IconButton(
                 onClick = {
+                    val updatedAlbum = album?.album?.toggleLike()
                     database.query {
-                        album?.album?.toggleLike()?.let(::update)
+                        updatedAlbum?.let(::update)
+                    }
+                    coroutineScope.launch(Dispatchers.IO) {
+                        updatedAlbum?.playlistId?.let { playlistId ->
+                            YouTube.likePlaylist(playlistId, updatedAlbum.bookmarkedAt != null)
+                        }
                     }
                 },
             ) {

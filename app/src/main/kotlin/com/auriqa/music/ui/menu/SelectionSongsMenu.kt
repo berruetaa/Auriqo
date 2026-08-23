@@ -782,15 +782,19 @@ fun SelectionMediaMetadataMenu(
                                 )
                             },
                             onClick = {
+                                val songsToUpdate = if (allLiked) {
+                                    songSelection.map { it.toSongEntity().toggleLike() }
+                                } else {
+                                    songSelection
+                                        .filter { !it.liked }
+                                        .map { it.toSongEntity().toggleLike() }
+                                }
                                 database.query {
-                                    if (allLiked) {
-                                        songSelection.forEach { song ->
-                                            update(song.toSongEntity().toggleLike())
-                                        }
-                                    } else {
-                                        songSelection.filter { !it.liked }.forEach { song ->
-                                            update(song.toSongEntity().toggleLike())
-                                        }
+                                    songsToUpdate.forEach(::update)
+                                }
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    songsToUpdate.forEach { song ->
+                                        YouTube.likeVideo(song.id, song.liked)
                                     }
                                 }
                             }

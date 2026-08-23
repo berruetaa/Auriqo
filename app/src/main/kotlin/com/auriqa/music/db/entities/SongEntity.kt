@@ -7,10 +7,6 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import com.music.innertube.YouTube
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 
 @Immutable
@@ -59,29 +55,19 @@ data class SongEntity(
         likedDate = if (!liked) LocalDateTime.now() else null,
     )
 
+    /** Returns the local state change; callers own any remote synchronization job. */
     fun toggleLike() = copy(
         liked = !liked,
         likedDate = if (!liked) LocalDateTime.now() else null,
         inLibrary = if (!liked) inLibrary ?: LocalDateTime.now() else inLibrary
-    ).also {
-        CoroutineScope(Dispatchers.IO).launch {
-            YouTube.likeVideo(id, !liked)
-        }
-    }
+    )
 
-    fun toggleLibrary(syncToYouTube: Boolean = true) = copy(
+    /** Returns the local state change; callers own any remote synchronization job. */
+    fun toggleLibrary() = copy(
         liked = if (inLibrary == null) liked else false,
         inLibrary = if (inLibrary == null) LocalDateTime.now() else null,
         likedDate = if (inLibrary == null) likedDate else null
-    ).also {
-        if (syncToYouTube) {
-            CoroutineScope(Dispatchers.IO).launch {
-                
-                val addToLibrary = inLibrary == null
-                YouTube.toggleSongLibrary(id, addToLibrary)
-            }
-        }
-    }
+    )
 
     fun toggleUploaded() = copy(
         isUploaded = !isUploaded

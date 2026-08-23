@@ -40,6 +40,7 @@ import com.auriqo.music.ui.component.Material3MenuGroup
 import com.auriqo.music.ui.component.Material3MenuItemData
 import com.auriqo.music.ui.component.NewAction
 import com.auriqo.music.ui.component.NewActionGrid
+import com.music.innertube.YouTube
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -233,8 +234,19 @@ fun ArtistMenu(
                             )
                         },
                         onClick = {
+                            val updatedArtist = artist.artist.toggleLike()
                             database.transaction {
-                                update(artist.artist.toggleLike())
+                                update(updatedArtist)
+                            }
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val targetChannelId = updatedArtist.channelId
+                                    ?: YouTube.getChannelId(updatedArtist.id)
+                                if (targetChannelId.isNotEmpty()) {
+                                    YouTube.subscribeChannel(
+                                        targetChannelId,
+                                        updatedArtist.bookmarkedAt != null,
+                                    )
+                                }
                             }
                         }
                     )
