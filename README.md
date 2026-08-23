@@ -99,7 +99,9 @@ Useful local checks include:
 ./gradlew :wear:testDebugUnitTest --no-daemon
 ./gradlew :innertube:testDebugUnitTest --no-daemon
 ./gradlew :letras:test --no-daemon
+./gradlew :canvas:test --no-daemon
 ./gradlew :app:lintUniversalFossDebug --no-daemon
+./gradlew :app:assembleUniversalFossDebug --no-daemon
 ```
 
 The current checkout contains the Kotlin Better Lyrics client and TTML parser, but no tracked web
