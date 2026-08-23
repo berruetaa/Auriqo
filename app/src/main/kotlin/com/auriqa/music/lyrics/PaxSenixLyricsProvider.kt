@@ -1,25 +1,12 @@
 package com.auriqo.music.lyrics
 
-import android.content.Context
 import com.music.paxsenix.Paxsenix
-import com.auriqo.music.constants.EnablePaxsenixKey
-import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.snapshot
 import timber.log.Timber
 
 object PaxSenixLyricsProvider : LyricsProvider {
     private const val TAG = "PaxSenixProvider"
 
     override val name = "Paxsenix"
-
-    override fun isEnabled(context: Context): Boolean {
-        
-        val enabled = context.dataStore.snapshot(EnablePaxsenixKey) ?: true
-        return enabled
-
-    override fun prepare(context: Context) {
-        Paxsenix.init(context)
-    }
 
     override suspend fun getLyrics(
         id: String,
