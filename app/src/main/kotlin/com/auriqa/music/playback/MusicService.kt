@@ -173,7 +173,7 @@ import com.auriqo.music.utils.ScrobbleManager
 import com.auriqo.music.utils.SyncUtils
 import com.auriqo.music.utils.YTPlayerUtils
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.snapshot
 import com.auriqo.music.utils.reportException
 import com.auriqo.music.widget.AuriqoWidgetManager
 import com.auriqo.music.widget.MusicWidgetReceiver
@@ -558,7 +558,7 @@ class MusicService :
             } == true
 
             if (hasBluetooth) {
-                if (dataStore.get(ResumeOnBluetoothConnectKey, false)) {
+                if (dataStore.snapshot(ResumeOnBluetoothConnectKey, false)) {
                     if (player.playbackState == Player.STATE_READY && !player.isPlaying) {
                         player.play()
                     }
@@ -688,11 +688,11 @@ class MusicService :
                     ),
                 ).setBitmapLoader(CoilBitmapLoader(this, scope))
                 .build()
-        player.repeatMode = dataStore.get(RepeatModeKey, REPEAT_MODE_OFF)
+        player.repeatMode = dataStore.snapshot(RepeatModeKey, REPEAT_MODE_OFF)
 
         
-        if (dataStore.get(RememberShuffleAndRepeatKey, true)) {
-            player.shuffleModeEnabled = dataStore.get(ShuffleModeKey, false)
+        if (dataStore.snapshot(RememberShuffleAndRepeatKey, true)) {
+            player.shuffleModeEnabled = dataStore.snapshot(ShuffleModeKey, false)
         }
         updateNotification()
 
@@ -712,9 +712,9 @@ class MusicService :
 
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
 
-        audioQuality = dataStore.get(AudioQualityKey).toEnum(com.auriqo.music.constants.AudioQuality.OPUS)
-        ipVersion = dataStore.get(IpVersionKey).toEnum(IpVersion.AUTO)
-        playerVolume = MutableStateFlow(restorePlayerVolume(dataStore.get(PlayerVolumeKey, 1f)))
+        audioQuality = dataStore.snapshot(AudioQualityKey).toEnum(com.auriqo.music.constants.AudioQuality.OPUS)
+        ipVersion = dataStore.snapshot(IpVersionKey).toEnum(IpVersion.AUTO)
+        playerVolume = MutableStateFlow(restorePlayerVolume(dataStore.snapshot(PlayerVolumeKey, 1f)))
 
         
         initializeCast()
@@ -1006,7 +1006,7 @@ class MusicService :
             .collect(scope) { cachedPreloadLyrics = it }
 
 
-        if (dataStore.get(PersistentQueueKey, true)) {
+        if (dataStore.snapshot(PersistentQueueKey, true)) {
             val queueFile = filesDir.resolve(PERSISTENT_QUEUE_FILE)
             if (queueFile.exists()) {
                 runCatching {
@@ -1094,7 +1094,7 @@ class MusicService :
         scope.launch {
             while (isActive) {
                 delay(30.seconds)
-                if (dataStore.get(PersistentQueueKey, true)) {
+                if (dataStore.snapshot(PersistentQueueKey, true)) {
                     saveQueueToDisk()
                 }
             }
@@ -1104,7 +1104,7 @@ class MusicService :
         scope.launch {
             while (isActive) {
                 delay(10.seconds)
-                if (dataStore.get(PersistentQueueKey, true) && player.isPlaying) {
+                if (dataStore.snapshot(PersistentQueueKey, true) && player.isPlaying) {
                     saveQueueToDisk()
                 }
             }
@@ -1120,11 +1120,9 @@ class MusicService :
         val silenceProcessor = SilenceDetectorAudioProcessor { handleLongSilenceDetected() }
 
         
-        runBlocking {
-            val skipSilence = dataStore.get(SkipSilenceKey, false)
-            val instantSkip = dataStore.get(SkipSilenceInstantKey, false)
-            silenceProcessor.instantModeEnabled = skipSilence && instantSkip
-        }
+        val skipSilence = dataStore.snapshot(SkipSilenceKey, false)
+        val instantSkip = dataStore.snapshot(SkipSilenceInstantKey, false)
+        silenceProcessor.instantModeEnabled = skipSilence && instantSkip
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(createMediaSourceFactory())
@@ -1152,12 +1150,10 @@ class MusicService :
         playerDuckProcessors[player] = duckProcessor
 
         player.apply {
-                runBlocking {
-                    val offload = dataStore.get(AudioOffload, false)
-                    val crossfade = dataStore.get(CrossfadeEnabledKey, false)
-                    setOffloadEnabled(if (crossfade) false else offload)
-                    skipSilenceEnabled = dataStore.get(SkipSilenceKey, false)
-                }
+                val offload = dataStore.snapshot(AudioOffload, false)
+                val crossfade = dataStore.snapshot(CrossfadeEnabledKey, false)
+                setOffloadEnabled(if (crossfade) false else offload)
+                skipSilenceEnabled = dataStore.snapshot(SkipSilenceKey, false)
                 addAnalyticsListener(PlaybackStatsListener(false, this@MusicService))
 
                 
@@ -1512,7 +1508,7 @@ class MusicService :
         streamRecovery.beginPlayback(null, force = true)
         currentQueue = queue
         queueTitle = null
-        val persistShuffleAcrossQueues = dataStore.get(PersistentShuffleAcrossQueuesKey, false)
+        val persistShuffleAcrossQueues = dataStore.snapshot(PersistentShuffleAcrossQueuesKey, false)
         val previousShuffleEnabled = player.shuffleModeEnabled
         if (!persistShuffleAcrossQueues) {
             player.shuffleModeEnabled = false
@@ -1528,8 +1524,8 @@ class MusicService :
             val initialStatus =
                 withContext(Dispatchers.IO) {
                     queue.getInitialStatus()
-                        .filterExplicit(dataStore.get(HideExplicitKey, false))
-                        .filterVideoSongs(dataStore.get(HideVideoSongsKey, false) || dataStore.get(com.auriqo.music.constants.DataSaverEnabledKey, false))
+                        .filterExplicit(dataStore.snapshot(HideExplicitKey, false))
+                        .filterVideoSongs(dataStore.snapshot(HideVideoSongsKey, false) || dataStore.snapshot(com.auriqo.music.constants.DataSaverEnabledKey, false))
                 }
             if (queue.preloadItem != null && player.playbackState == STATE_IDLE) return@launch
             if (initialStatus.title != null) {
@@ -1564,7 +1560,7 @@ class MusicService :
 
             
             if (player.shuffleModeEnabled) {
-                val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
+                val shufflePlaylistFirst = dataStore.snapshot(ShufflePlaylistFirstKey, false)
                 applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
             }
         }
@@ -1603,8 +1599,8 @@ class MusicService :
             try {
                 val initialStatus = withContext(Dispatchers.IO) {
                     radioQueue.getInitialStatus()
-                        .filterExplicit(dataStore.get(HideExplicitKey, false))
-                        .filterVideoSongs(dataStore.get(HideVideoSongsKey, false) || dataStore.get(com.auriqo.music.constants.DataSaverEnabledKey, false))
+                        .filterExplicit(dataStore.snapshot(HideExplicitKey, false))
+                        .filterVideoSongs(dataStore.snapshot(HideVideoSongsKey, false) || dataStore.snapshot(com.auriqo.music.constants.DataSaverEnabledKey, false))
                 }
 
                 if (initialStatus.title != null) {
@@ -1625,7 +1621,7 @@ class MusicService :
 
                     player.addMediaItems(currentIndex + 1, radioItems)
                     if (player.shuffleModeEnabled) {
-                        val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
+                        val shufflePlaylistFirst = dataStore.snapshot(ShufflePlaylistFirstKey, false)
                         applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
                     }
                 }
@@ -1645,8 +1641,8 @@ class MusicService :
                             val radioItems = songs
                                 .filter { it.id != currentMediaId }
                                 .map { it.toMediaItem() }
-                                .filterExplicit(dataStore.get(HideExplicitKey, false))
-                                .filterVideoSongs(dataStore.get(HideVideoSongsKey, false) || dataStore.get(com.auriqo.music.constants.DataSaverEnabledKey, false))
+                                .filterExplicit(dataStore.snapshot(HideExplicitKey, false))
+                                .filterVideoSongs(dataStore.snapshot(HideVideoSongsKey, false) || dataStore.snapshot(com.auriqo.music.constants.DataSaverEnabledKey, false))
 
                             if (radioItems.isNotEmpty()) {
                                 val itemCount = player.mediaItemCount
@@ -1655,7 +1651,7 @@ class MusicService :
                                 }
                                 player.addMediaItems(currentIndex + 1, radioItems)
                                 if (player.shuffleModeEnabled) {
-                                    val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
+                                    val shufflePlaylistFirst = dataStore.snapshot(ShufflePlaylistFirstKey, false)
                                     applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
                                 }
                             }
@@ -1679,8 +1675,8 @@ class MusicService :
     }
 
     fun getAutomix(playlistId: String) {
-        if (dataStore.get(SimilarContent, true) &&
-            !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)) {
+        if (dataStore.snapshot(SimilarContent, true) &&
+            !(dataStore.snapshot(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)) {
             scope.launch(SilentHandler) {
                 try {
                     
@@ -1777,7 +1773,7 @@ class MusicService :
         }
 
         
-        if (dataStore.get(PreventDuplicateTracksInQueueKey, false)) {
+        if (dataStore.snapshot(PreventDuplicateTracksInQueueKey, false)) {
             val itemIds = items.map { it.mediaId }.toSet()
             val indicesToRemove = mutableListOf<Int>()
             val currentIndex = player.currentMediaItemIndex
@@ -1865,7 +1861,7 @@ class MusicService :
         val isCasting = castConnectionHandler?.isCasting?.value == true
         Timber.d("CastFlow.addToQueue: items=${items.size}, isCasting=$isCasting, playerItemCount=${player.mediaItemCount}")
         
-        if (dataStore.get(PreventDuplicateTracksInQueueKey, false)) {
+        if (dataStore.snapshot(PreventDuplicateTracksInQueueKey, false)) {
             val itemIds = items.map { it.mediaId }.toSet()
             val indicesToRemove = mutableListOf<Int>()
             val currentIndex = player.currentMediaItemIndex
@@ -1932,7 +1928,7 @@ class MusicService :
                     syncUtils.likeSong(song)
 
                     
-                    if (dataStore.get(AutoDownloadOnLikeKey, false) && song.liked) {
+                    if (dataStore.snapshot(AutoDownloadOnLikeKey, false) && song.liked) {
                         
                         val downloadRequest =
                             androidx.media3.exoplayer.offline.DownloadRequest
@@ -2141,17 +2137,17 @@ class MusicService :
         }
 
         
-        if (dataStore.get(AutoLoadMoreKey, true) &&
+        if (dataStore.snapshot(AutoLoadMoreKey, true) &&
             reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
             player.mediaItemCount - player.currentMediaItemIndex <= 5 &&
             currentQueue.hasNextPage() &&
-            !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)
+            !(dataStore.snapshot(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)
         ) {
             scope.launch(SilentHandler) {
                 val mediaItems = withContext(Dispatchers.IO) {
                     currentQueue.nextPage()
-                        .filterExplicit(dataStore.get(HideExplicitKey, false))
-                        .filterVideoSongs(dataStore.get(HideVideoSongsKey, false) || dataStore.get(com.auriqo.music.constants.DataSaverEnabledKey, false))
+                        .filterExplicit(dataStore.snapshot(HideExplicitKey, false))
+                        .filterVideoSongs(dataStore.snapshot(HideVideoSongsKey, false) || dataStore.snapshot(com.auriqo.music.constants.DataSaverEnabledKey, false))
                 }
                 if (player.playbackState != STATE_IDLE && mediaItems.isNotEmpty()) {
                     val countBeforeAppend = player.mediaItemCount
@@ -2164,7 +2160,7 @@ class MusicService :
         }
 
         
-        if (dataStore.get(PersistentQueueKey, true)) {
+        if (dataStore.snapshot(PersistentQueueKey, true)) {
             saveQueueToDisk()
         }
     }
@@ -2182,7 +2178,7 @@ class MusicService :
         }
 
         
-        if (dataStore.get(PersistentQueueKey, true) && !isSilenceSkipping) {
+        if (dataStore.snapshot(PersistentQueueKey, true) && !isSilenceSkipping) {
             saveQueueToDisk()
         }
 
@@ -2313,7 +2309,7 @@ class MusicService :
             
             if (player.mediaItemCount == 0) return
 
-            val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
+            val shufflePlaylistFirst = dataStore.snapshot(ShufflePlaylistFirstKey, false)
             val currentIndex = player.currentMediaItemIndex
             val totalCount = player.mediaItemCount
 
@@ -2321,7 +2317,7 @@ class MusicService :
         }
 
         
-        if (dataStore.get(RememberShuffleAndRepeatKey, true)) {
+        if (dataStore.snapshot(RememberShuffleAndRepeatKey, true)) {
             scope.launch {
                 dataStore.edit { settings ->
                     settings[ShuffleModeKey] = shuffleModeEnabled
@@ -2330,7 +2326,7 @@ class MusicService :
         }
 
         
-        if (dataStore.get(PersistentQueueKey, true)) {
+        if (dataStore.snapshot(PersistentQueueKey, true)) {
             saveQueueToDisk()
         }
     }
@@ -2344,7 +2340,7 @@ class MusicService :
         }
 
         
-        if (dataStore.get(PersistentQueueKey, true)) {
+        if (dataStore.snapshot(PersistentQueueKey, true)) {
             saveQueueToDisk()
         }
     }
@@ -2826,7 +2822,7 @@ class MusicService :
     }
 
     private fun handleFinalFailure() {
-        if (dataStore.get(AutoSkipNextOnErrorKey, false)) {
+        if (dataStore.snapshot(AutoSkipNextOnErrorKey, false)) {
             Timber.tag(TAG).d("All recovery attempts exhausted, auto-skipping to next track")
             skipOnError()
         } else {
@@ -2837,7 +2833,7 @@ class MusicService :
 
     override fun onDeviceVolumeChanged(volume: Int, muted: Boolean) {
         super.onDeviceVolumeChanged(volume, muted)
-        val pauseOnMute = dataStore.get(PauseOnMute, false)
+        val pauseOnMute = dataStore.snapshot(PauseOnMute, false)
 
         if ((volume == 0 || muted) && pauseOnMute) {
             if (player.isPlaying) {
@@ -2971,14 +2967,14 @@ class MusicService :
 
     private fun ensurePresenceManager() {
         if (DiscordPresenceManager.lastRpcStartTime != null && lastPresenceToken != null) {
-            if (dataStore.get(EnableDiscordRPCKey, true) && dataStore.get(DiscordTokenKey, "").isNotBlank()) {
+            if (dataStore.snapshot(EnableDiscordRPCKey, true) && dataStore.snapshot(DiscordTokenKey, "").isNotBlank()) {
                 DiscordPresenceManager.restart()
             }
             return
         }
 
         scope.launch {
-            if (!dataStore.get(EnableDiscordRPCKey, true)) {
+            if (!dataStore.snapshot(EnableDiscordRPCKey, true)) {
                 if (DiscordPresenceManager.lastRpcStartTime != null) {
                     try { DiscordPresenceManager.stop() } catch (_: Exception) {}
                     lastPresenceToken = null
@@ -2986,7 +2982,7 @@ class MusicService :
                 return@launch
             }
 
-            val key = dataStore.get(DiscordTokenKey, "")
+            val key = dataStore.snapshot(DiscordTokenKey, "")
             if (key.isBlank()) {
                 if (DiscordPresenceManager.lastRpcStartTime != null) {
                     try { DiscordPresenceManager.stop() } catch (_: Exception) {}
@@ -3264,10 +3260,10 @@ class MusicService :
         playbackStats: PlaybackStats,
     ) {
         val mediaItem = eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
-        val historyDurationMs = dataStore[HistoryDuration]?.times(1000f) ?: 30000f
+        val historyDurationMs = dataStore.snapshot(HistoryDuration)?.times(1000f) ?: 30000f
 
         if (playbackStats.totalPlayTimeMs >= historyDurationMs &&
-            !dataStore.get(PauseListenHistoryKey, false)
+            !dataStore.snapshot(PauseListenHistoryKey, false)
         ) {
             database.query {
                 incrementTotalPlayTime(mediaItem.mediaId, playbackStats.totalPlayTimeMs)
@@ -3389,7 +3385,7 @@ class MusicService :
         }
         audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
         castConnectionHandler?.release()
-        if (dataStore.get(PersistentQueueKey, true)) {
+        if (dataStore.snapshot(PersistentQueueKey, true)) {
             saveQueueToDisk()
         }
         DiscordPresenceManager.stop()
@@ -3552,7 +3548,7 @@ class MusicService :
 
     
     private fun initializeCast() {
-        if (dataStore.get(com.auriqo.music.constants.EnableGoogleCastKey, true)) {
+        if (dataStore.snapshot(com.auriqo.music.constants.EnableGoogleCastKey, true)) {
             try {
                 castConnectionHandler = CastConnectionHandler(this, scope, this)
                 if (castConnectionHandler?.initialize() != true) {
@@ -4041,7 +4037,7 @@ class MusicService :
         performCrossfadeSwap()
 
         if (savedShuffleEnabled) {
-            val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
+            val shufflePlaylistFirst = dataStore.snapshot(ShufflePlaylistFirstKey, false)
             applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
         }
     }

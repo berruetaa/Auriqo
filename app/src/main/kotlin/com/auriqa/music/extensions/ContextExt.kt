@@ -9,20 +9,14 @@ import com.music.innertube.utils.parseCookieString
 import com.auriqo.music.constants.InnerTubeCookieKey
 import com.auriqo.music.constants.YtmSyncKey
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
-import kotlinx.coroutines.runBlocking
+import com.auriqo.music.utils.read
 
-fun Context.isSyncEnabled(): Boolean {
-    return runBlocking {
-        dataStore.get(YtmSyncKey, true) && isUserLoggedIn()
-    }
-}
+suspend fun Context.isSyncEnabled(): Boolean =
+    dataStore.read(YtmSyncKey, true) && isUserLoggedIn()
 
-fun Context.isUserLoggedIn(): Boolean {
-    return runBlocking {
-        val cookie = dataStore[InnerTubeCookieKey] ?: ""
-        "SAPISID" in parseCookieString(cookie) && isInternetConnected()
-    }
+suspend fun Context.isUserLoggedIn(): Boolean {
+    val cookie = dataStore.read(InnerTubeCookieKey, "")
+    return "SAPISID" in parseCookieString(cookie) && isInternetConnected()
 }
 
 fun Context.isInternetConnected(): Boolean {

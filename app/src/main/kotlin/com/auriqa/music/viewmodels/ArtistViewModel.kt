@@ -21,7 +21,7 @@ import com.auriqo.music.db.MusicDatabase
 import com.auriqo.music.extensions.filterExplicit
 import com.auriqo.music.extensions.filterExplicitAlbums
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import com.auriqo.music.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -91,9 +91,9 @@ class ArtistViewModel @Inject constructor(
 
     fun fetchArtistsFromYTM() {
         viewModelScope.launch {
-            val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-            val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
-            val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
+            val hideExplicit = context.dataStore.read(HideExplicitKey, false)
+            val hideVideoSongs = context.dataStore.read(HideVideoSongsKey, false)
+            val hideYoutubeShorts = context.dataStore.read(HideYoutubeShortsKey, false)
             YouTube.artist(artistId)
                 .onSuccess { page ->
                     val filteredSections = page.sections

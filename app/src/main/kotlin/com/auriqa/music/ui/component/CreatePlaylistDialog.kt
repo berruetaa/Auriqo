@@ -28,8 +28,8 @@ import com.music.innertube.YouTube
 import com.auriqo.music.LocalDatabase
 import com.auriqo.music.R
 import com.auriqo.music.constants.InnerTubeCookieKey
+import com.auriqo.music.constants.YtmSyncKey
 import com.auriqo.music.db.entities.PlaylistEntity
-import com.auriqo.music.extensions.isSyncEnabled
 import com.auriqo.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,6 +50,7 @@ fun CreatePlaylistDialog(
     val context = LocalContext.current
 
     val innerTubeCookie by rememberPreference(InnerTubeCookieKey, "")
+    val ytmSyncEnabled by rememberPreference(YtmSyncKey, true)
     val isSignedIn = innerTubeCookie.isNotEmpty()
 
     TextFieldDialog(
@@ -106,14 +107,13 @@ fun CreatePlaylistDialog(
                         Switch(
                             checked = syncedPlaylist,
                             onCheckedChange = {
-                                val isYtmSyncEnabled = context.isSyncEnabled()
                                 if (!isSignedIn && !syncedPlaylist) {
                                     Toast.makeText(
                                         context,
                                         context.getString(R.string.not_logged_in_youtube),
                                         Toast.LENGTH_SHORT
                                     ).show()
-                                } else if (!isYtmSyncEnabled) {
+                                } else if (!ytmSyncEnabled) {
                                     Toast.makeText(
                                         context,
                                         context.getString(R.string.sync_disabled),

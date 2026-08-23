@@ -78,7 +78,7 @@ class DiscordRPC(
             lastSongId = song.song.id
         }
 
-        val showWhenPaused = context.dataStore[DiscordShowWhenPausedKey] ?: false
+        val showWhenPaused = context.dataStore.snapshot(DiscordShowWhenPausedKey) ?: false
         if (isPaused && !showWhenPaused) {
             Timber.tag(TAG).v("Paused and show-when-paused is disabled; clearing Discord presence")
             stopActivity()
@@ -87,9 +87,9 @@ class DiscordRPC(
 
         val translatedMap = translateSongFields(song)
         val appName = context.getString(R.string.app_name)
-        val namePref = context.dataStore[DiscordActivityNameKey] ?: "APP"
-        val detailsPref = context.dataStore[DiscordActivityDetailsKey] ?: "SONG"
-        val statePref = context.dataStore[DiscordActivityStateKey] ?: "ARTIST"
+        val namePref = context.dataStore.snapshot(DiscordActivityNameKey) ?: "APP"
+        val detailsPref = context.dataStore.snapshot(DiscordActivityDetailsKey) ?: "SONG"
+        val statePref = context.dataStore.snapshot(DiscordActivityStateKey) ?: "ARTIST"
 
         val activityName =
             sourceValue(
@@ -117,10 +117,10 @@ class DiscordRPC(
 
         val baseSongUrl = song.youtubeMusicUrl()
         val resolvedImages = DiscordImageResolver.resolveImagesForSong(context, song)
-        val largeImageType = context.dataStore[DiscordLargeImageTypeKey] ?: "thumbnail"
-        val largeImageCustomUrl = context.dataStore[DiscordLargeImageCustomUrlKey] ?: ""
-        val smallImageType = context.dataStore[DiscordSmallImageTypeKey] ?: "artist"
-        val smallImageCustomUrl = context.dataStore[DiscordSmallImageCustomUrlKey] ?: ""
+        val largeImageType = context.dataStore.snapshot(DiscordLargeImageTypeKey) ?: "thumbnail"
+        val largeImageCustomUrl = context.dataStore.snapshot(DiscordLargeImageCustomUrlKey) ?: ""
+        val smallImageType = context.dataStore.snapshot(DiscordSmallImageTypeKey) ?: "artist"
+        val smallImageCustomUrl = context.dataStore.snapshot(DiscordSmallImageCustomUrlKey) ?: ""
 
         val largeImage =
             when (largeImageType.lowercase()) {
@@ -169,15 +169,15 @@ class DiscordRPC(
         val buttons = resolveButtons(song)
         val activityType =
             DiscordActivityType.fromPreference(
-                context.dataStore[DiscordActivityTypeKey] ?: "LISTENING",
+                context.dataStore.snapshot(DiscordActivityTypeKey) ?: "LISTENING",
             )
         val platform =
             DiscordActivityPlatform.fromPreference(
-                context.dataStore[DiscordActivityPlatformKey] ?: "android",
+                context.dataStore.snapshot(DiscordActivityPlatformKey) ?: "android",
             )
         val status =
             DiscordOnlineStatus.fromPreference(
-                context.dataStore[DiscordPresenceStatusKey] ?: "online",
+                context.dataStore.snapshot(DiscordPresenceStatusKey) ?: "online",
             )
 
         val timestamps =
@@ -278,15 +278,15 @@ class DiscordRPC(
     }
 
     private suspend fun resolveButtons(song: Song): List<DiscordPresenceButton> {
-        val button1Label = context.dataStore[DiscordActivityButton1LabelKey] ?: "Listen on YouTube Music"
-        val button1Enabled = context.dataStore[DiscordActivityButton1EnabledKey] ?: true
-        val button2Label = context.dataStore[DiscordActivityButton2LabelKey] ?: "Go to Auriqo"
-        val button2Enabled = context.dataStore[DiscordActivityButton2EnabledKey] ?: true
-        val button1UrlSource = context.dataStore[DiscordActivityButton1UrlSourceKey] ?: "songurl"
-        val button1CustomUrl = context.dataStore[DiscordActivityButton1CustomUrlKey] ?: ""
-        val button2UrlSource = context.dataStore[DiscordActivityButton2UrlSourceKey] ?: "custom"
+        val button1Label = context.dataStore.snapshot(DiscordActivityButton1LabelKey) ?: "Listen on YouTube Music"
+        val button1Enabled = context.dataStore.snapshot(DiscordActivityButton1EnabledKey) ?: true
+        val button2Label = context.dataStore.snapshot(DiscordActivityButton2LabelKey) ?: "Go to Auriqo"
+        val button2Enabled = context.dataStore.snapshot(DiscordActivityButton2EnabledKey) ?: true
+        val button1UrlSource = context.dataStore.snapshot(DiscordActivityButton1UrlSourceKey) ?: "songurl"
+        val button1CustomUrl = context.dataStore.snapshot(DiscordActivityButton1CustomUrlKey) ?: ""
+        val button2UrlSource = context.dataStore.snapshot(DiscordActivityButton2UrlSourceKey) ?: "custom"
         val button2CustomUrl =
-            context.dataStore[DiscordActivityButton2CustomUrlKey]
+            context.dataStore.snapshot(DiscordActivityButton2CustomUrlKey)
                 ?: "https://github.com/Auriqo/Auriqo"
 
         return buildList {

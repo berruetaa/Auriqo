@@ -6,7 +6,7 @@ import android.content.Context
 import com.music.paxsenix.Paxsenix
 import com.auriqo.music.constants.EnablePaxsenixKey
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.snapshot
 import timber.log.Timber
 
 object PaxSenixLyricsProvider : LyricsProvider {
@@ -16,7 +16,7 @@ object PaxSenixLyricsProvider : LyricsProvider {
 
     override fun isEnabled(context: Context): Boolean {
         
-        val enabled = context.dataStore[EnablePaxsenixKey] ?: true
+        val enabled = context.dataStore.snapshot(EnablePaxsenixKey) ?: true
         if (enabled) {
             Paxsenix.init(context)
         }

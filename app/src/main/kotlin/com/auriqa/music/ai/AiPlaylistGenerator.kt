@@ -12,7 +12,7 @@ import com.auriqo.music.db.entities.PlaylistEntity
 import com.auriqo.music.db.entities.PlaylistSongMap
 import com.auriqo.music.db.entities.SongEntity
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -35,7 +35,7 @@ object AiPlaylistGenerator {
         
         onLog("Connecting to AI Provider...")
 
-        val aiProvider = context.dataStore.get(AiProviderKey, "OpenRouter")
+        val aiProvider = context.dataStore.read(AiProviderKey, "OpenRouter")
         
         val systemPrompt = """
             You are a highly accurate and strict music historian. The user will ask for a playlist based on a specific prompt.
@@ -61,9 +61,9 @@ object AiPlaylistGenerator {
             onLog("Puter is not implemented yet. Using dummy data.")
             "{}"
         } else {
-            val apiKey = context.dataStore.get(OpenRouterApiKey, "")
-            val baseUrl = context.dataStore.get(OpenRouterBaseUrlKey, "https://openrouter.ai/api/v1/chat/completions")
-            val model = context.dataStore.get(OpenRouterModelKey, "google/gemini-2.5-flash-lite")
+            val apiKey = context.dataStore.read(OpenRouterApiKey, "")
+            val baseUrl = context.dataStore.read(OpenRouterBaseUrlKey, "https://openrouter.ai/api/v1/chat/completions")
+            val model = context.dataStore.read(OpenRouterModelKey, "google/gemini-2.5-flash-lite")
 
             if (apiKey.isEmpty()) {
                 onLog("API Key is missing. Please set it in Settings.")

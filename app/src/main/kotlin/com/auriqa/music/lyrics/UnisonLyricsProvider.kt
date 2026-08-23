@@ -4,13 +4,13 @@ import android.content.Context
 import com.auriqa.music.unison.Unison
 import com.auriqo.music.constants.UnisonLyricsEnabledKey
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.snapshot
 
 object UnisonLyricsProvider : LyricsProvider {
     override val name: String = "Unison"
 
     override fun isEnabled(context: Context): Boolean =
-        context.dataStore[UnisonLyricsEnabledKey] ?: true
+        context.dataStore.snapshot(UnisonLyricsEnabledKey) ?: true
 
     override suspend fun getLyrics(
         id: String,

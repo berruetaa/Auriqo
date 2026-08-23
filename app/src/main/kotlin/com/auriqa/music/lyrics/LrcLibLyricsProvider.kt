@@ -6,12 +6,12 @@ import android.content.Context
 import com.music.lrclib.LrcLib
 import com.auriqo.music.constants.EnableLrcLibKey
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.snapshot
 
 object LrcLibLyricsProvider : LyricsProvider {
     override val name = "LrcLib"
 
-    override fun isEnabled(context: Context): Boolean = context.dataStore[EnableLrcLibKey] ?: true
+    override fun isEnabled(context: Context): Boolean = context.dataStore.snapshot(EnableLrcLibKey) ?: true
 
     override suspend fun getLyrics(
         id: String,

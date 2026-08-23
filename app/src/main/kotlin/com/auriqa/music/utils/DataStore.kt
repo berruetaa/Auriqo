@@ -54,16 +54,16 @@ private object DataStoreSnapshotRegistry {
         }.value
 }
 
-@Deprecated(
-    message = "Use suspend read() or collect DataStore.data; this is a non-blocking transitional snapshot.",
-)
-operator fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>): T? =
+/**
+ * Reads the latest already-emitted value without waiting for DataStore.
+ *
+ * This is only for synchronous Android callbacks and constructors that cannot suspend. It returns
+ * the supplied default until the DataStore flow has emitted; suspend code must use [read] instead.
+ */
+fun <T> DataStore<Preferences>.snapshot(key: Preferences.Key<T>): T? =
     DataStoreSnapshotRegistry.current(this)[key]
 
-@Deprecated(
-    message = "Use suspend read() or collect DataStore.data; this is a non-blocking transitional snapshot.",
-)
-fun <T> DataStore<Preferences>.get(
+fun <T> DataStore<Preferences>.snapshot(
     key: Preferences.Key<T>,
     defaultValue: T,
 ): T = DataStoreSnapshotRegistry.current(this)[key] ?: defaultValue
