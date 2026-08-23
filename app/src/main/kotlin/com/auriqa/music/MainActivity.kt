@@ -129,7 +129,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
-import androidx.core.util.Consumer
 import androidx.core.view.WindowCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -241,8 +240,6 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     companion object {
-        const val ACTION_SEARCH = "com.auriqo.music.action.SEARCH"
-        const val ACTION_LIBRARY = "com.auriqo.music.action.LIBRARY"
         const val ACTION_RECOGNITION = "com.auriqo.music.action.RECOGNITION"
         const val EXTRA_AUTO_START_RECOGNITION = "auto_start_recognition"
     }
@@ -259,7 +256,7 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var listenTogetherManager: com.auriqo.music.listentogether.ListenTogetherManager
     private lateinit var navController: NavHostController
-    private var pendingIntent: Intent? = null
+    private val pendingIntents = java.util.ArrayDeque<Intent>()
 
     private var playerConnection by mutableStateOf<PlayerConnection?>(null)
 
@@ -351,12 +348,9 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (::navController.isInitialized) {
-            if (handleUpdateIntent(intent, navController)) return
-            handleDeepLinkIntent(intent, navController)
-            handleRecognitionIntent(intent, navController)
-            handleAssistantSearchIntent(intent, navController)
+            dispatchIntent(intent, navController)
         } else {
-            pendingIntent = intent
+            pendingIntents.addLast(intent)
         }
     }
 
@@ -633,9 +627,9 @@ class MainActivity : ComponentActivity() {
                     dataStore[DefaultOpenTabKey].toEnum(defaultValue = NavigationTab.HOME)
                 }
                 val tabOpenedFromShortcut = remember {
-                    when (intent?.action) {
-                        ACTION_SEARCH -> NavigationTab.LIBRARY
-                        ACTION_LIBRARY -> NavigationTab.SEARCH
+                    when (routeFor(this@MainActivity.intent)) {
+                        MainActivityIntentRouter.Route.OpenSearch -> NavigationTab.SEARCH
+                        MainActivityIntentRouter.Route.OpenLibrary -> NavigationTab.LIBRARY
                         else -> null
                     }
                 }
@@ -875,41 +869,20 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                LaunchedEffect(Unit) {
-                    if (pendingIntent != null && pendingIntent!!.action == ACTION_OPEN_UPDATE) {
-                        handleUpdateIntent(pendingIntent!!, navController)
-                        pendingIntent = null
-                    } else if (pendingIntent != null) {
-                        handleDeepLinkIntent(pendingIntent!!, navController)
-                        handleRecognitionIntent(pendingIntent!!, navController)
-                        handleAssistantSearchIntent(pendingIntent!!, navController)
-                        pendingIntent = null
-                    } else if (intent != null && intent.action == ACTION_OPEN_UPDATE) {
-                        handleUpdateIntent(intent, navController)
-                    } else if (intent != null && (intent.action == Intent.ACTION_VIEW || intent.action == Intent.ACTION_SEND)) {
-                        handleDeepLinkIntent(intent, navController)
-                    } else if (intent != null && intent.action == ACTION_RECOGNITION) {
-                        handleRecognitionIntent(intent, navController)
-                    } else if (intent != null && intent.action == android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) {
-                        handleAssistantSearchIntent(intent, navController)
-                    }
-                }
+                LaunchedEffect(navController) {
+                    this@MainActivity.navController = navController
 
-                DisposableEffect(Unit) {
-                    val listener = Consumer<Intent> { intent ->
-                        if (intent.action == ACTION_OPEN_UPDATE) {
-                            handleUpdateIntent(intent, navController)
-                        } else if (intent.action == Intent.ACTION_VIEW || intent.action == Intent.ACTION_SEND) {
-                            handleDeepLinkIntent(intent, navController)
-                        } else if (intent.action == ACTION_RECOGNITION) {
-                            handleRecognitionIntent(intent, navController)
-                        } else if (intent.action == android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) {
-                            handleAssistantSearchIntent(intent, navController)
-                        }
+                    while (pendingIntents.isNotEmpty()) {
+                        dispatchIntent(pendingIntents.removeFirst(), navController)
                     }
 
-                    addOnNewIntentListener(listener)
-                    onDispose { removeOnNewIntentListener(listener) }
+                    val initialIntent = this@MainActivity.intent
+                    val initialRoute = routeFor(initialIntent)
+                    if (initialRoute !is MainActivityIntentRouter.Route.OpenSearch &&
+                        initialRoute !is MainActivityIntentRouter.Route.OpenLibrary
+                    ) {
+                        dispatchIntent(initialIntent, navController)
+                    }
                 }
 
                 val currentTitle = when (navBackStackEntry?.destination?.route) {
@@ -1441,6 +1414,45 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun routeFor(intent: Intent?): MainActivityIntentRouter.Route =
+        MainActivityIntentRouter.route(
+            input = MainActivityIntentRouter.Input(
+                action = intent?.action,
+                dataUri = intent?.dataString,
+                sharedText = intent?.getStringExtra(Intent.EXTRA_TEXT),
+                recognitionAutoStart = intent?.getBooleanExtra(EXTRA_AUTO_START_RECOGNITION, false) == true,
+                assistantQuery = intent?.getStringExtra(android.app.SearchManager.QUERY),
+            ),
+            updateAction = ACTION_OPEN_UPDATE,
+            recognitionAction = ACTION_RECOGNITION,
+        )
+
+    private fun dispatchIntent(intent: Intent, navController: NavHostController): Boolean =
+        when (val route = routeFor(intent)) {
+            MainActivityIntentRouter.Route.Update -> handleUpdateIntent(intent, navController)
+            is MainActivityIntentRouter.Route.Recognition -> {
+                handleRecognitionIntent(intent, navController)
+                true
+            }
+            is MainActivityIntentRouter.Route.Search -> {
+                openSearch(route.query, navController)
+                true
+            }
+            is MainActivityIntentRouter.Route.OpenDeepLink -> {
+                handleDeepLinkIntent(intent, navController, route.uri.toUri())
+                true
+            }
+            MainActivityIntentRouter.Route.OpenSearch -> {
+                navController.navigate(Screens.Search.route) { launchSingleTop = true }
+                true
+            }
+            MainActivityIntentRouter.Route.OpenLibrary -> {
+                navController.navigate(Screens.Library.route) { launchSingleTop = true }
+                true
+            }
+            MainActivityIntentRouter.Route.None -> false
+        }
+
     private fun handleUpdateIntent(intent: Intent, navController: NavHostController): Boolean {
         if (intent.action != ACTION_OPEN_UPDATE) return false
         intent.action = null
@@ -1450,8 +1462,12 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
-    private fun handleDeepLinkIntent(intent: Intent, navController: NavHostController) {
-        var uri = intent.data
+    private fun handleDeepLinkIntent(
+        intent: Intent,
+        navController: NavHostController,
+        explicitUri: android.net.Uri? = null,
+    ) {
+        var uri = explicitUri ?: intent.data
         if (uri == null) {
             val extraText = intent.extras?.getString(Intent.EXTRA_TEXT)
             if (extraText != null) {
@@ -1590,14 +1606,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun handleAssistantSearchIntent(
-        intent: Intent,
-        navController: NavHostController,
-    ) {
-        if (intent.action == android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) {
-            val query = intent.getStringExtra(android.app.SearchManager.QUERY) ?: return
-            navController.navigate("search/${URLEncoder.encode(query, "UTF-8")}")
-        }
+    private fun openSearch(query: String, navController: NavHostController) {
+        navController.navigate("search/${URLEncoder.encode(query, "UTF-8")}")
     }
 }
 
