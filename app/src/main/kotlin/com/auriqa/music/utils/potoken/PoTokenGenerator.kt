@@ -32,7 +32,7 @@ class PoTokenGenerator {
     }
 
     suspend fun getWebClientPoToken(videoId: String, sessionId: String): PoTokenResult? {
-        Timber.tag(TAG).d("getWebClientPoToken called: videoId=$videoId, sessionId=$sessionId")
+        Timber.tag(TAG).d("getWebClientPoToken called: videoId=$videoId, session present")
         Timber.tag(TAG).d("WebView state: supported=$webViewSupported, badImpl=$webViewBadImpl")
         if (!webViewSupported || webViewBadImpl) {
             Timber.tag(TAG).d("WebView not available: supported=$webViewSupported, badImpl=$webViewBadImpl")
@@ -62,7 +62,7 @@ class PoTokenGenerator {
         sessionId: String,
         forceRecreate: Boolean,
     ): PoTokenResult = webPoTokenGenLock.withLock {
-        Timber.tag(TAG).d("Web poToken requested: videoId=$videoId, sessionId=$sessionId")
+        Timber.tag(TAG).d("Web poToken requested: videoId=$videoId, session present")
         var recreateGenerator = forceRecreate
         var result: PoTokenResult? = null
 
@@ -90,19 +90,14 @@ class PoTokenGenerator {
                 webPoTokenSessionId = sessionId
                 webPoTokenGenerator = newGenerator
                 webPoTokenStreamingPot = newStreamingPot
-                Timber.tag(TAG).d(
-                    "Streaming poToken generated for sessionId=${webPoTokenSessionId?.take(20)}...",
-                )
+                Timber.tag(TAG).d("Streaming poToken generated")
             }
 
             val poTokenGenerator = requireNotNull(webPoTokenGenerator)
             val streamingPot = requireNotNull(webPoTokenStreamingPot)
             try {
                 val playerPot = poTokenGenerator.generatePoToken(videoId)
-                Timber.tag(TAG).d(
-                    "poToken generated successfully: player=${playerPot.take(20)}..., " +
-                        "streaming=${streamingPot.take(20)}...",
-                )
+                Timber.tag(TAG).d("poTokens generated successfully")
                 result = PoTokenResult(playerPot, streamingPot)
             } catch (e: CancellationException) {
                 throw e
