@@ -2,16 +2,10 @@
 
 package com.auriqo.music.lyrics
 
-import android.content.Context
 import com.music.lrclib.LrcLib
-import com.auriqo.music.constants.EnableLrcLibKey
-import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
 
 object LrcLibLyricsProvider : LyricsProvider {
     override val name = "LrcLib"
-
-    override fun isEnabled(context: Context): Boolean = context.dataStore[EnableLrcLibKey] ?: true
 
     override suspend fun getLyrics(
         id: String,

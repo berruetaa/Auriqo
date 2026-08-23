@@ -2,11 +2,7 @@ package com.auriqo.music.lyrics
 
 import android.content.Context
 import android.util.LruCache
-import com.auriqo.music.constants.LyricsProviderOrderKey
-import com.auriqo.music.constants.PreferredLyricsProvider
-import com.auriqo.music.constants.PreferredLyricsProviderKey
 import com.auriqo.music.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
-import com.auriqo.music.extensions.toEnum
 import com.auriqo.music.models.MediaMetadata
 import com.auriqo.music.utils.NetworkConnectivityObserver
 import com.auriqo.music.utils.dataStore
@@ -31,17 +27,7 @@ constructor(
 ) {
     private suspend fun resolveLyricsProviders(): List<LyricsProvider> {
         val preferences = context.dataStore.data.first()
-        val orderString = preferences[LyricsProviderOrderKey].orEmpty()
-
-        val order = if (orderString.isNotBlank()) {
-            LyricsProviderRegistry.deserializeProviderOrder(orderString)
-        } else {
-            val preferredEnum = preferences[PreferredLyricsProviderKey]
-                .toEnum(PreferredLyricsProvider.YOULYPLUS)
-            val preferredName = LyricsProviderRegistry.getProviderNameForEnum(preferredEnum)
-            val defaultOrder = LyricsProviderRegistry.getDefaultProviderOrder()
-            listOf(preferredName) + defaultOrder.filter { it != preferredName }
-        }
+        val order = LyricsProviderRegistry.resolveProviderOrder(preferences)
 
         return LyricsProviderRegistry.getOrderedEnabledProviders(
             order = order,

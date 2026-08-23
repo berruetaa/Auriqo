@@ -2,17 +2,10 @@
 
 package com.auriqo.music.lyrics
 
-import android.content.Context
 import com.music.youlyplus.YouLyPlus
-import com.auriqo.music.constants.EnableYouLyPlusKey
-import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
 
 object YouLyPlusLyricsProvider : LyricsProvider {
     override val name = "YouLyPlus"
-
-    override fun isEnabled(context: Context): Boolean =
-        context.dataStore[EnableYouLyPlusKey] ?: true
 
     override suspend fun getLyrics(
         id: String,
@@ -33,4 +26,3 @@ object YouLyPlusLyricsProvider : LyricsProvider {
         YouLyPlus.getAllLyrics(title, artist, duration, album, id, null, callback)
     }
 }
-

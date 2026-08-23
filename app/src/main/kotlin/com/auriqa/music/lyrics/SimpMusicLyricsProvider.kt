@@ -2,16 +2,10 @@
 
 package com.auriqo.music.lyrics
 
-import android.content.Context
-import com.auriqo.music.constants.EnableSimpMusicKey
-import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
 import com.music.simpmusic.SimpMusicLyrics
 
 object SimpMusicLyricsProvider : LyricsProvider {
     override val name = "SimpMusic"
-
-    override fun isEnabled(context: Context): Boolean = context.dataStore[EnableSimpMusicKey] ?: true
 
     override suspend fun getLyrics(
         id: String,
