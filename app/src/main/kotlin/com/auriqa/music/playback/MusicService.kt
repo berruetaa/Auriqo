@@ -615,7 +615,7 @@ class MusicService :
         }
         scope.launch {
             dataStore.data.map { it[LastFMSessionKey] }.distinctUntilChanged().collect { sessionKey ->
-                com.auriqa.music.utils.lastfm.LastFM.sessionKey = sessionKey
+                com.auriqa.music.utils.lastfm.LastFM.setSessionKey(sessionKey)
             }
         }        
         
