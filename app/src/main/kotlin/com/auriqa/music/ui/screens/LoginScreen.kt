@@ -37,17 +37,17 @@ import com.auriqo.music.constants.AccountNameKey
 import com.auriqo.music.constants.DataSyncIdKey
 import com.auriqo.music.constants.InnerTubeCookieKey
 import com.auriqo.music.constants.VisitorDataKey
+import com.auriqo.music.security.isAllowedYoutubeLoginUrl
 import com.auriqo.music.ui.component.IconButton
 import com.auriqo.music.ui.utils.backToMain
 import com.auriqo.music.utils.rememberPreference
 import com.auriqo.music.utils.reportException
-import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
 @SuppressLint("SetJavaScriptEnabled")
-@OptIn(ExperimentalMaterial3Api::class, DelicateCoroutinesApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     navController: NavController,
@@ -71,11 +71,33 @@ fun LoginScreen(
         factory = { webViewContext ->
             WebView(webViewContext).apply {
                 webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView,
+                        request: android.webkit.WebResourceRequest,
+                    ): Boolean {
+                        val url = request.url.toString()
+                        return url != "about:blank" && !isAllowedYoutubeLoginUrl(url)
+                    }
+
+                    override fun onPageStarted(
+                        view: WebView,
+                        url: String,
+                        favicon: android.graphics.Bitmap?,
+                    ) {
+                        super.onPageStarted(view, url, favicon)
+                        if (url != "about:blank" && !isAllowedYoutubeLoginUrl(url)) {
+                            view.stopLoading()
+                            view.loadUrl("about:blank")
+                        }
+                    }
+
                     override fun onPageFinished(view: WebView, url: String?) {
+                        if (url == null || !isAllowedYoutubeLoginUrl(url)) return
+                        super.onPageFinished(view, url)
                         loadUrl("javascript:Android.onRetrieveVisitorData(window.yt.config_.VISITOR_DATA)")
                         loadUrl("javascript:Android.onRetrieveDataSyncId(window.yt.config_.DATASYNC_ID)")
 
-                        if (url?.startsWith("https://music.youtube.com") == true && !hasCompletedLogin) {
+                        if (url.startsWith("https://music.youtube.com") && !hasCompletedLogin) {
                             innerTubeCookie = CookieManager.getInstance().getCookie(url)
                             hasCompletedLogin = true
 
@@ -125,6 +147,9 @@ fun LoginScreen(
                 }
                 settings.apply {
                     javaScriptEnabled = true
+                    allowFileAccess = false
+                    allowContentAccess = false
+                    mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
                     setSupportZoom(true)
                     builtInZoomControls = true
                     displayZoomControls = false
