@@ -216,7 +216,7 @@ import com.auriqo.music.ui.utils.appBarScrollBehavior
 import com.auriqo.music.ui.utils.resetHeightOffset
 import com.auriqo.music.utils.SyncUtils
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import com.auriqo.music.utils.rememberEnumPreference
 import com.auriqo.music.utils.rememberPreference
 import com.auriqo.music.utils.reportException
@@ -325,7 +325,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (dataStore.get(StopMusicOnTaskClearKey, false) &&
+        if (stopMusicOnTaskClear &&
             playerConnection?.isPlaying?.value == true &&
             isFinishing
         ) {
@@ -334,6 +334,8 @@ class MainActivity : ComponentActivity() {
             playerConnection = null
         }
     }
+
+    private var stopMusicOnTaskClear = false
 
     /**
      * Unbinds from [MusicService] once, if it is still bound.
@@ -386,12 +388,15 @@ class MainActivity : ComponentActivity() {
         
         listenTogetherManager.initialize()
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            val locale = dataStore[AppLanguageKey]
-                ?.takeUnless { it == SYSTEM_DEFAULT }
-                ?.let { Locale.forLanguageTag(it) }
-                ?: Locale.getDefault()
-            setAppLocale(this, locale)
+        lifecycleScope.launch {
+            stopMusicOnTaskClear = dataStore.read(StopMusicOnTaskClearKey, false)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                val locale = dataStore.read(AppLanguageKey)
+                    ?.takeUnless { it == SYSTEM_DEFAULT }
+                    ?.let { Locale.forLanguageTag(it) }
+                    ?: Locale.getDefault()
+                setAppLocale(this@MainActivity, locale)
+            }
         }
 
         lifecycleScope.launch {
@@ -629,9 +634,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val (useNewMiniPlayerDesign) = rememberPreference(UseNewMiniPlayerDesignKey, defaultValue = true)
-                val defaultOpenTab = remember {
-                    dataStore[DefaultOpenTabKey].toEnum(defaultValue = NavigationTab.HOME)
-                }
+                val defaultOpenTab by rememberEnumPreference(DefaultOpenTabKey, NavigationTab.HOME)
+                val pauseSearchHistory by rememberPreference(PauseSearchHistoryKey, defaultValue = false)
                 val tabOpenedFromShortcut = remember {
                     when (intent?.action) {
                         ACTION_SEARCH -> NavigationTab.LIBRARY
@@ -658,7 +662,7 @@ class MainActivity : ComponentActivity() {
                         if (searchQuery.isNotEmpty()) {
                             navController.navigate("search/${URLEncoder.encode(searchQuery, "UTF-8")}")
 
-                            if (dataStore[PauseSearchHistoryKey] != true) {
+                            if (!pauseSearchHistory) {
                                 lifecycleScope.launch(Dispatchers.IO) {
                                     database.query {
                                         insert(SearchHistory(query = searchQuery))
@@ -1473,8 +1477,10 @@ class MainActivity : ComponentActivity() {
             ?: uri.pathSegments.getOrNull(1)
         val isListenLink = uri.pathSegments.firstOrNull() == "listen" || uri.host?.equals("listen", ignoreCase = true) == true
         if (!listenCode.isNullOrBlank() && isListenLink) {
-            val username = dataStore.get(ListenTogetherUsernameKey, "").ifBlank { "Guest" }
-            listenTogetherManager.joinRoom(listenCode, username)
+            coroutineScope.launch {
+                val username = dataStore.read(ListenTogetherUsernameKey, "").ifBlank { "Guest" }
+                listenTogetherManager.joinRoom(listenCode, username)
+            }
             return
         }
 
