@@ -30,37 +30,38 @@ class SponsorBlockRepository @Inject constructor() {
                 .build()
 
             val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                if (response.code != 404) {
-                    Timber.w("SponsorBlock API failed for video $videoId with code ${response.code}")
+            response.use { responseBody ->
+                if (!responseBody.isSuccessful) {
+                    if (responseBody.code != 404) {
+                        Timber.w("SponsorBlock API failed for video $videoId with code ${responseBody.code}")
+                    }
+                    return@withContext emptyList()
                 }
-                return@withContext emptyList()
-            }
 
-            val responseBody = response.body?.string() ?: return@withContext emptyList()
-            val jsonArray = JSONArray(responseBody)
-            
-            val segments = mutableListOf<SponsorBlockSegment>()
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                val segmentArray = obj.getJSONArray("segment")
-                if (segmentArray.length() == 2) {
-                    segments.add(
-                        SponsorBlockSegment(
-                            segment = listOf(segmentArray.getDouble(0).toFloat(), segmentArray.getDouble(1).toFloat()),
-                            UUID = obj.optString("UUID"),
-                            category = obj.optString("category"),
-                            actionType = obj.optString("actionType"),
-                            locked = obj.optInt("locked", 0),
-                            votes = obj.optInt("votes", 0),
-                            description = obj.optString("description")
+                val jsonArray = JSONArray(responseBody.body.string())
+
+                val segments = mutableListOf<SponsorBlockSegment>()
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val segmentArray = obj.getJSONArray("segment")
+                    if (segmentArray.length() == 2) {
+                        segments.add(
+                            SponsorBlockSegment(
+                                segment = listOf(segmentArray.getDouble(0).toFloat(), segmentArray.getDouble(1).toFloat()),
+                                UUID = obj.optString("UUID"),
+                                category = obj.optString("category"),
+                                actionType = obj.optString("actionType"),
+                                locked = obj.optInt("locked", 0),
+                                votes = obj.optInt("votes", 0),
+                                description = obj.optString("description")
+                            )
                         )
-                    )
+                    }
                 }
+
+                cache[videoId] = segments
+                segments
             }
-            
-            cache[videoId] = segments
-            segments
         } catch (e: Exception) {
             Timber.e(e, "Error fetching SponsorBlock segments for $videoId")
             emptyList()

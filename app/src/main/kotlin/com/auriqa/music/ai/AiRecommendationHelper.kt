@@ -100,15 +100,16 @@ object AiRecommendationHelper {
                 .build()
 
             val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                onLog?.invoke("AI Request failed: ${response.code}")
-                return@withContext
-            }
+            response.use { responseBody ->
+                if (!responseBody.isSuccessful) {
+                    onLog?.invoke("AI Request failed: ${responseBody.code}")
+                    return@withContext
+                }
 
-            val responseString = response.body?.string() ?: return@withContext
-            val responseJson = JSONObject(responseString)
-            val choices = responseJson.optJSONArray("choices") ?: return@withContext
-            choices.optJSONObject(0)?.optJSONObject("message")?.optString("content") ?: "[]"
+                val responseJson = JSONObject(responseBody.body.string())
+                val choices = responseJson.optJSONArray("choices") ?: return@withContext
+                choices.optJSONObject(0)?.optJSONObject("message")?.optString("content") ?: "[]"
+            }
         }
 
         // Clean output just in case of markdown formatting

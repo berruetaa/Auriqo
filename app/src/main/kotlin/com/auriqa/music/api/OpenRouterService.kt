@@ -150,26 +150,33 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
 
                 onLog?.invoke("Calling OpenRouter API (Attempt ${currentAttempt + 1})...")
                 val response = client.newCall(request).execute()
-                val responseBody = response.body?.string() ?: ""
+                response.use { responseBody ->
+                val responseText = responseBody.body.string()
 
-                if (!response.isSuccessful) {
+                if (!responseBody.isSuccessful) {
                     
-                    if (response.code >= 500) {
+                    if (responseBody.code >= 500) {
                         currentAttempt++
                         kotlinx.coroutines.delay(1000L * currentAttempt)
                         continue
                     }
                     
                     val errorMsg = try {
-                        JSONObject(responseBody ?: "").optJSONObject("error")?.optString("message") 
-                            ?: "HTTP ${response.code}: ${response.message}"
+                        JSONObject(responseText).optJSONObject("error")?.optString("message")
+                            ?.takeIf { it.isNotBlank() }
+                            ?: "HTTP ${responseBody.code}: ${responseBody.message}"
                     } catch (e: Exception) {
-                        "HTTP ${response.code}: ${response.message}"
+                        "HTTP ${responseBody.code}: ${responseBody.message}"
                     }
                     return@withContext Result.failure(Exception("Translation failed: $errorMsg"))
                 }
 
-                val jsonResponse = JSONObject(responseBody)
+                if (responseText.isBlank()) {
+                    currentAttempt++
+                    continue
+                }
+
+                val jsonResponse = JSONObject(responseText)
                 val choices = jsonResponse.optJSONArray("choices")
                 if (choices != null && choices.length() > 0) {
                     val message = choices.getJSONObject(0).optJSONObject("message")
@@ -227,6 +234,7 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
                             }
                         }
                     }
+                }
                 }
             } catch (e: Exception) {
                 if (currentAttempt == maxRetries - 1) {

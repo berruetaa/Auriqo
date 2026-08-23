@@ -79,30 +79,32 @@ object DeepLService {
 
                 onLog?.invoke("Calling DeepL API (Attempt ${currentAttempt + 1})...")
                 val response = client.newCall(request).execute()
-                val responseBody = response.body?.string() ?: ""
-                if (!response.isSuccessful) {
+                response.use { responseBody ->
+                val responseText = responseBody.body.string()
+                if (!responseBody.isSuccessful) {
                     
-                    if (response.code >= 500) {
+                    if (responseBody.code >= 500) {
                         currentAttempt++
                         kotlinx.coroutines.delay(1000L * currentAttempt)
                         continue
                     }
                     
                     val errorMsg = try {
-                        JSONObject(responseBody ?: "").optString("message") 
-                            ?: "HTTP ${response.code}: ${response.message}"
+                        JSONObject(responseText).optString("message")
+                            .takeIf { it.isNotBlank() }
+                            ?: "HTTP ${responseBody.code}: ${responseBody.message}"
                     } catch (e: Exception) {
-                        "HTTP ${response.code}: ${response.message}"
+                        "HTTP ${responseBody.code}: ${responseBody.message}"
                     }
                     return@withContext Result.failure(Exception("Translation failed: $errorMsg"))
                 }
 
-                if (responseBody == null) {
+                if (responseText.isBlank()) {
                     currentAttempt++
                     continue
                 }
 
-                val jsonResponse = JSONObject(responseBody)
+                val jsonResponse = JSONObject(responseText)
                 val translations = jsonResponse.optJSONArray("translations")
                 if (translations != null && translations.length() > 0) {
                     val translatedLines = (0 until translations.length()).map { i ->
@@ -121,6 +123,7 @@ object DeepLService {
                         }
                         return@withContext Result.success(paddedLines)
                     }
+                }
                 }
             } catch (e: Exception) {
                 if (currentAttempt == maxRetries - 1) {
