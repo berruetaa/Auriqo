@@ -6,9 +6,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -58,31 +55,37 @@ object ListenTogetherServers {
         }
     }
 
-    init {
-        GlobalScope.launch(Dispatchers.IO) {
-            try {
-                val client = okhttp3.OkHttpClient()
-                val request = okhttp3.Request.Builder().url(SERVER_JSON_URL).build()
-                val response = client.newCall(request).execute()
-                response.body?.string()?.let { jsonString ->
-                    val jsonObject = Json.parseToJsonElement(jsonString).jsonObject
-                    val name = jsonObject["name"]?.jsonPrimitive?.content ?: "Hugging Face Sync"
-                    val url = jsonObject["serverUrl"]?.jsonPrimitive?.content ?: "wss://devilmi-vivi-music-listen-together.hf.space"
-                    val region = jsonObject["region"]?.jsonPrimitive?.content ?: "Global - VIVIDH"
-                    
-                    if (!isAllowedServerUrl(url)) return@let
-                    _servers.value = listOf(
-                        ListenTogetherServer(
-                            name = name,
-                            url = url,
-                            location = region,
-                            operator = ""
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                // Fallback implicitly retained
+    /**
+     * Refreshes the remotely advertised server list.
+     *
+     * The caller owns the coroutine scope so this work follows the application lifecycle
+     * instead of escaping through GlobalScope. Invalid responses leave the fallback intact.
+     */
+    suspend fun refresh() {
+        try {
+            val client = okhttp3.OkHttpClient()
+            val request = okhttp3.Request.Builder().url(SERVER_JSON_URL).build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return
+                val jsonString = response.body.string()
+                val jsonObject = Json.parseToJsonElement(jsonString).jsonObject
+                val name = jsonObject["name"]?.jsonPrimitive?.content ?: "Hugging Face Sync"
+                val url = jsonObject["serverUrl"]?.jsonPrimitive?.content
+                    ?: "wss://devilmi-vivi-music-listen-together.hf.space"
+                val region = jsonObject["region"]?.jsonPrimitive?.content ?: "Global - VIVIDH"
+
+                if (!isAllowedServerUrl(url)) return
+                _servers.value = listOf(
+                    ListenTogetherServer(
+                        name = name,
+                        url = url,
+                        location = region,
+                        operator = "",
+                    ),
+                )
             }
+        } catch (_: Exception) {
+            // Keep the fallback when the remote catalog is unavailable or malformed.
         }
     }
 
