@@ -23,6 +23,7 @@ import com.auriqo.music.di.ApplicationScope
 import com.auriqo.music.echomusic.updater.scheduleUpdateChecks
 import com.auriqo.music.extensions.toEnum
 import com.auriqo.music.extensions.toInetSocketAddress
+import com.auriqo.music.listentogether.ListenTogetherServers
 import com.auriqo.music.utils.CrashHandler
 import com.auriqo.music.utils.cipher.CipherDeobfuscator
 import com.auriqo.music.utils.dataStore
@@ -101,6 +102,10 @@ class App : Application(), SingletonImageLoader.Factory {
         }
 
         scheduleUpdateChecks(this)
+
+        applicationScope.launch(Dispatchers.IO) {
+            ListenTogetherServers.refresh()
+        }
 
         applicationScope.launch(Dispatchers.IO) {
             cachedCoilCacheSize = dataStore.data.map { it[MaxImageCacheSizeKey] ?: 512 }.first()
