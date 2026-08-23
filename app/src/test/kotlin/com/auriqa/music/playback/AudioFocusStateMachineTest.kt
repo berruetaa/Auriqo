@@ -43,7 +43,8 @@ class AudioFocusStateMachineTest {
         )
 
         assertEquals(listOf(AudioFocusStateMachine.Action.DUCK), transition.actions)
-        assertTrue(transition.state.resumeOnGain)
+        assertTrue(transition.state.hasFocus)
+        assertFalse(transition.state.resumeOnGain)
     }
 
     @Test
@@ -63,10 +64,11 @@ class AudioFocusStateMachineTest {
             transition.actions,
         )
         assertFalse(transition.state.hasFocus)
+        assertFalse(transition.state.resumeOnGain)
     }
 
     @Test
-    fun `gain while already playing only restores volume`() {
+    fun `gain while already playing only restores volume and clears pending resume`() {
         val machine = AudioFocusStateMachine(
             initialState = AudioFocusStateMachine.State(resumeOnGain = true),
         )
@@ -77,6 +79,49 @@ class AudioFocusStateMachineTest {
         )
 
         assertEquals(listOf(AudioFocusStateMachine.Action.RESTORE_VOLUME), transition.actions)
-        assertTrue(transition.state.resumeOnGain)
+        assertFalse(transition.state.resumeOnGain)
+    }
+
+    @Test
+    fun `gain after permanent loss never resumes`() {
+        val machine = AudioFocusStateMachine()
+
+        machine.onEvent(AudioFocusStateMachine.Event.LOSS, isPlaying = true)
+
+        val gain = machine.onEvent(AudioFocusStateMachine.Event.GAIN, isPlaying = false)
+
+        assertEquals(listOf(AudioFocusStateMachine.Action.RESTORE_VOLUME), gain.actions)
+    }
+
+    @Test
+    fun `loss while paused does not create a resume action`() {
+        val machine = AudioFocusStateMachine()
+
+        val loss = machine.onEvent(
+            AudioFocusStateMachine.Event.LOSS_TRANSIENT,
+            isPlaying = false,
+        )
+        val gain = machine.onEvent(AudioFocusStateMachine.Event.GAIN, isPlaying = false)
+
+        assertTrue(loss.actions.isEmpty())
+        assertEquals(listOf(AudioFocusStateMachine.Action.RESTORE_VOLUME), gain.actions)
+    }
+
+    @Test
+    fun `repeated gain emits resume only once`() {
+        val machine = AudioFocusStateMachine()
+
+        machine.onEvent(AudioFocusStateMachine.Event.LOSS_TRANSIENT, isPlaying = true)
+        val firstGain = machine.onEvent(AudioFocusStateMachine.Event.GAIN, isPlaying = false)
+        val secondGain = machine.onEvent(AudioFocusStateMachine.Event.GAIN, isPlaying = false)
+
+        assertEquals(
+            listOf(
+                AudioFocusStateMachine.Action.RESUME,
+                AudioFocusStateMachine.Action.RESTORE_VOLUME,
+            ),
+            firstGain.actions,
+        )
+        assertEquals(listOf(AudioFocusStateMachine.Action.RESTORE_VOLUME), secondGain.actions)
     }
 }

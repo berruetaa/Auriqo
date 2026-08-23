@@ -16,7 +16,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.database.SQLException
-import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.LoudnessEnhancer
@@ -256,11 +255,7 @@ class MusicService :
     // Without this, the router's power-saving protocol (Target Wake Time) causes
     // packet delays, leading to audio buffering or playback stopping after the screen turns off.
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
-    private var audioFocusRequest: AudioFocusRequest? = null
-    private var lastAudioFocusState = AudioManager.AUDIOFOCUS_NONE
-    private var wasPlayingBeforeAudioFocusLoss = false
-    private var hasAudioFocus = false
-    private var reentrantFocusGain = false
+    private lateinit var audioFocusController: AudioFocusController
     private var wasPlayingBeforeVolumeMute = false
     private var isPausedByVolumeMute = false
     var preferredDeviceId: Int? = null 
@@ -670,8 +665,6 @@ class MusicService :
         Timber.tag(TAG).d("Player successfully initialized")
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        abandonAudioFocus()
-        setupAudioFocusRequest()
 
         mediaLibrarySessionCallback.apply {
             toggleLike = ::toggleLike
@@ -717,6 +710,22 @@ class MusicService :
         audioQuality = dataStore.snapshot(AudioQualityKey).toEnum(com.auriqo.music.constants.AudioQuality.OPUS)
         ipVersion = dataStore.snapshot(IpVersionKey).toEnum(IpVersion.AUTO)
         playerVolume = MutableStateFlow(restorePlayerVolume(dataStore.snapshot(PlayerVolumeKey, 1f)))
+
+        audioFocusController = AudioFocusController(
+            context = this,
+            scope = scope,
+            isPlaying = { player.isPlaying },
+            isMuted = { isMuted.value },
+            volume = { playerVolume.value },
+            pause = { player.pause() },
+            resume = {
+                if (castConnectionHandler?.isCasting?.value != true) player.play()
+            },
+            setVolume = { player.volume = it },
+            canResume = {
+                playerInitialized.value && castConnectionHandler?.isCasting?.value != true
+            },
+        )
 
         
         initializeCast()
@@ -1164,103 +1173,6 @@ class MusicService :
         return player
     }
 
-    private fun setupAudioFocusRequest() {
-        audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(
-                android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
-            .setOnAudioFocusChangeListener { focusChange ->
-                handleAudioFocusChange(focusChange)
-            }
-            .setAcceptsDelayedFocusGain(true)
-            .build()
-    }
-
-    private fun handleAudioFocusChange(focusChange: Int) {
-        when (focusChange) {
-
-            AudioManager.AUDIOFOCUS_GAIN,
-            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT -> {
-                hasAudioFocus = true
-
-                if (wasPlayingBeforeAudioFocusLoss && !player.isPlaying && !reentrantFocusGain) {
-                    reentrantFocusGain = true
-                    scope.launch {
-                        delay(300)
-                        if (hasAudioFocus && wasPlayingBeforeAudioFocusLoss && !player.isPlaying) {
-                            
-                            if (castConnectionHandler?.isCasting?.value != true) {
-                                player.play()
-                            }
-                            wasPlayingBeforeAudioFocusLoss = false
-                        }
-                        reentrantFocusGain = false
-                    }
-                }
-
-                player.volume = if (isMuted.value) 0f else playerVolume.value
-                lastAudioFocusState = focusChange
-            }
-
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                hasAudioFocus = false
-                wasPlayingBeforeAudioFocusLoss = player.isPlaying
-                if (player.isPlaying) {
-                    player.pause()
-                }
-                abandonAudioFocus()
-                lastAudioFocusState = focusChange
-            }
-
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                hasAudioFocus = false
-                wasPlayingBeforeAudioFocusLoss = player.isPlaying
-                if (player.isPlaying) {
-                    player.pause()
-                }
-                lastAudioFocusState = focusChange
-            }
-
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                hasAudioFocus = false
-                wasPlayingBeforeAudioFocusLoss = player.isPlaying
-                if (player.isPlaying) {
-                    player.volume = if (isMuted.value) 0f else (playerVolume.value * 0.2f)
-                }
-                lastAudioFocusState = focusChange
-            }
-
-            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK -> {
-                hasAudioFocus = true
-                player.volume = if (isMuted.value) 0f else playerVolume.value
-                lastAudioFocusState = focusChange
-            }
-        }
-    }
-
-    private fun requestAudioFocus(): Boolean {
-        if (hasAudioFocus) return true
-
-        audioFocusRequest?.let { request ->
-            val result = audioManager.requestAudioFocus(request)
-            hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-            return hasAudioFocus
-        }
-        return false
-    }
-
-    private fun abandonAudioFocus() {
-        if (hasAudioFocus) {
-            audioFocusRequest?.let { request ->
-                audioManager.abandonAudioFocusRequest(request)
-                hasAudioFocus = false
-            }
-        }
-    }
-
     /**
      * Acquires a high-performance Wi-Fi lock when playback starts.
      *
@@ -1302,7 +1214,7 @@ class MusicService :
     }
 
     fun hasAudioFocusForPlayback(): Boolean {
-        return hasAudioFocus
+        return ::audioFocusController.isInitialized && audioFocusController.hasAudioFocus
     }
 
     private fun waitOnNetworkError() {
@@ -2245,7 +2157,7 @@ class MusicService :
             val isBufferingOrReady =
                 player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_READY
             if (isBufferingOrReady && player.playWhenReady) {
-                val focusGranted = requestAudioFocus()
+                val focusGranted = audioFocusController.request()
                 if (focusGranted) {
                     openAudioEffectSession()
                 }
@@ -2805,7 +2717,7 @@ class MusicService :
                     
                     if (wasPlaying) {
                         delay(500) 
-                        if (hasAudioFocus && playerInitialized.value) {
+                        if (hasAudioFocusForPlayback() && playerInitialized.value) {
                             if (castConnectionHandler?.isCasting?.value != true) {
                                 player.play()
                             }
@@ -3395,7 +3307,7 @@ class MusicService :
         DiscordPresenceManager.stop()
         connectivityObserver.unregister()
         releaseWifiLock()
-        abandonAudioFocus()
+        audioFocusController.release()
         releaseLoudnessEnhancer()
         try {
             fadingLoudnessEnhancer?.release()
