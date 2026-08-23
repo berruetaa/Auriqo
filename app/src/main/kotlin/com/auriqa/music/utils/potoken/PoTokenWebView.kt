@@ -300,14 +300,17 @@ class PoTokenWebView private constructor(
             val response = withContext(Dispatchers.IO) {
                 httpClient.newCall(requestBuilder.build()).execute()
             }
-            val httpCode = response.code
-            if (httpCode != 200) {
-                onInitializationErrorCloseAndCancel(PoTokenException("Invalid response code: $httpCode"))
-            } else {
-                val body = withContext(Dispatchers.IO) {
-                    response.body!!.string()
+            response.use { responseBody ->
+                val httpCode = responseBody.code
+                if (httpCode != 200) {
+                    onInitializationErrorCloseAndCancel(PoTokenException("Invalid response code: $httpCode"))
+                } else {
+                    val body = withContext(Dispatchers.IO) {
+                        responseBody.body.string().takeIf { it.isNotBlank() }
+                            ?: throw PoTokenException("Empty BotGuard response body")
+                    }
+                    handleResponseBody(body)
                 }
-                handleResponseBody(body)
             }
         }
     }
