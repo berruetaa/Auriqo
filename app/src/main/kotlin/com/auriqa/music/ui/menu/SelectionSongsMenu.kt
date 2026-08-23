@@ -60,7 +60,6 @@ import com.auriqo.music.ui.component.NewAction
 import com.auriqo.music.ui.component.NewActionGrid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 
@@ -552,10 +551,8 @@ fun SelectionMediaMetadataMenu(
         isVisible = showChoosePlaylistDialog,
         onGetSong = {
             songSelection.map {
-                runBlocking {
-                    withContext(Dispatchers.IO) {
-                        database.insert(it)
-                    }
+                withContext(Dispatchers.IO) {
+                    database.insert(it)
                 }
                 it.id
             }
