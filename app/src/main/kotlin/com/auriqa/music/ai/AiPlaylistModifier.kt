@@ -106,15 +106,16 @@ object AiPlaylistModifier {
 
             try {
                 val response = client.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    onLog("AI Request failed: ${response.code}")
-                    return@withContext
-                }
+                response.use { responseBody ->
+                    if (!responseBody.isSuccessful) {
+                        onLog("AI Request failed: ${responseBody.code}")
+                        return@withContext
+                    }
 
-                val responseString = response.body?.string() ?: return@withContext
-                val responseJson = JSONObject(responseString)
-                val choices = responseJson.optJSONArray("choices") ?: return@withContext
-                choices.optJSONObject(0)?.optJSONObject("message")?.optString("content") ?: "{}"
+                    val responseJson = JSONObject(responseBody.body.string())
+                    val choices = responseJson.optJSONArray("choices") ?: return@withContext
+                    choices.optJSONObject(0)?.optJSONObject("message")?.optString("content") ?: "{}"
+                }
             } catch (e: Exception) {
                 onLog("Network error: ${e.message}")
                 return@withContext

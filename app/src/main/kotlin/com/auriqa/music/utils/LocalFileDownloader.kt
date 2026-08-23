@@ -78,16 +78,16 @@ object LocalFileDownloader {
             requestBuilder.header("Range", "bytes=0-")
             val request = requestBuilder.build()
             val response = client.newCall(request).execute()
-
-            if (!response.isSuccessful) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Download failed: ${response.code}", Toast.LENGTH_SHORT).show()
+            response.use { responseBody ->
+                if (!responseBody.isSuccessful) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Download failed: ${responseBody.code}", Toast.LENGTH_SHORT).show()
+                    }
+                    notificationManager.cancel(notificationId)
+                    return@withContext
                 }
-                notificationManager.cancel(notificationId)
-                return@withContext
-            }
 
-            response.body?.let { body ->
+                val body = responseBody.body
                 val contentLength = body.contentLength()
                 body.byteStream().use { input ->
                     context.contentResolver.openOutputStream(file.uri)?.use { output ->
