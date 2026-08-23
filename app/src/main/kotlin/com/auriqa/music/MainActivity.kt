@@ -36,8 +36,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -137,7 +135,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import coil3.compose.AsyncImage
@@ -198,13 +195,11 @@ import com.auriqo.music.playback.PlayerConnection
 import com.auriqo.music.playback.queues.YouTubeQueue
 import com.auriqo.music.ui.component.*
 import com.auriqo.music.ui.component.backdrop.backdrops.rememberLayerBackdrop
-import com.auriqo.music.ui.component.backdrop.backdrops.layerBackdrop
 import com.auriqo.music.ui.menu.YouTubeSongMenu
 import com.auriqo.music.ui.player.BottomSheetPlayer
 import com.auriqo.music.ui.screens.Screens
 import com.auriqo.music.ui.screens.SettingDialoge
 import com.auriqo.music.ui.screens.WelcomeDialog
-import com.auriqo.music.ui.screens.navigationBuilder
 import com.auriqo.music.ui.screens.settings.DarkMode
 import com.auriqo.music.ui.screens.settings.NavigationTab
 import com.auriqo.music.ui.theme.ColorSaver
@@ -1257,80 +1252,19 @@ class MainActivity : ComponentActivity() {
                             }
                             Box(Modifier.weight(1f)) {
                                 
-                                NavHost(
+                                AppNavigation(
                                     navController = navController,
                                     startDestination = when (tabOpenedFromShortcut ?: defaultOpenTab) {
                                         NavigationTab.HOME -> Screens.Home
                                         NavigationTab.LIBRARY -> Screens.Library
                                         else -> Screens.Home
                                     }.route,
-                                    
-                                    enterTransition = {
-                                        val currentRouteIndex = navigationItems.indexOfFirst {
-                                            it.route == targetState.destination.route
-                                        }
-                                        val previousRouteIndex = navigationItems.indexOfFirst {
-                                            it.route == initialState.destination.route
-                                        }
-
-                                        if (currentRouteIndex == -1 || currentRouteIndex > previousRouteIndex)
-                                            slideInHorizontally { it / 8 } + fadeIn(tween(200))
-                                        else
-                                            slideInHorizontally { -it / 8 } + fadeIn(tween(200))
-                                    },
-                                    
-                                    exitTransition = {
-                                        val currentRouteIndex = navigationItems.indexOfFirst {
-                                            it.route == initialState.destination.route
-                                        }
-                                        val targetRouteIndex = navigationItems.indexOfFirst {
-                                            it.route == targetState.destination.route
-                                        }
-
-                                        if (targetRouteIndex == -1 || targetRouteIndex > currentRouteIndex)
-                                            slideOutHorizontally { -it / 8 } + fadeOut(tween(200))
-                                        else
-                                            slideOutHorizontally { it / 8 } + fadeOut(tween(200))
-                                    },
-                                    
-                                    popEnterTransition = {
-                                        val currentRouteIndex = navigationItems.indexOfFirst {
-                                            it.route == targetState.destination.route
-                                        }
-                                        val previousRouteIndex = navigationItems.indexOfFirst {
-                                            it.route == initialState.destination.route
-                                        }
-
-                                        if (previousRouteIndex != -1 && previousRouteIndex < currentRouteIndex)
-                                            slideInHorizontally { it / 8 } + fadeIn(tween(200))
-                                        else
-                                            slideInHorizontally { -it / 8 } + fadeIn(tween(200))
-                                    },
-                                    
-                                    popExitTransition = {
-                                        val currentRouteIndex = navigationItems.indexOfFirst {
-                                            it.route == initialState.destination.route
-                                        }
-                                        val targetRouteIndex = navigationItems.indexOfFirst {
-                                            it.route == targetState.destination.route
-                                        }
-
-                                        if (currentRouteIndex != -1 && currentRouteIndex < targetRouteIndex)
-                                            slideOutHorizontally { -it / 8 } + fadeOut(tween(200))
-                                        else
-                                            slideOutHorizontally { it / 8 } + fadeOut(tween(200))
-                                    },
-                                    modifier = Modifier
-                                        .layerBackdrop(appBackdrop)
-                                        .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
-                                ) {
-                                    navigationBuilder(
-                                        navController = navController,
-                                        scrollBehavior = topAppBarScrollBehavior,
-                                        activity = this@MainActivity,
-                                        snackbarHostState = snackbarHostState
-                                    )
-                                }
+                                    navigationItems = navigationItems,
+                                    scrollBehavior = topAppBarScrollBehavior,
+                                    appBackdrop = appBackdrop,
+                                    activity = this@MainActivity,
+                                    snackbarHostState = snackbarHostState,
+                                )
                             }
                         }
                     }
