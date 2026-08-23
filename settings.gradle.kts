@@ -19,6 +19,7 @@ dependencyResolutionManagement {
 rootProject.name = "auriqo"
 include(
     ":app",
+    ":baselineprofile",
     ":innertube",
     ":paxsenixlyrics",
     ":kugou",
