@@ -682,11 +682,13 @@ class MainActivity : ComponentActivity() {
                 val shouldShowNavigationBar = remember(currentRoute, navigationItemRoutes) {
                     currentRoute == null ||
                         navigationItemRoutes.contains(currentRoute) ||
-                        currentRoute!!.startsWith("search/") ||
-                        currentRoute!!.startsWith("album/") ||
-                        currentRoute!!.startsWith("online_playlist/") ||
-                        currentRoute!!.startsWith("local_playlist/") ||
-                        currentRoute!!.startsWith("artist/")
+                        currentRoute?.let { route ->
+                            route.startsWith("search/") ||
+                                route.startsWith("album/") ||
+                                route.startsWith("online_playlist/") ||
+                                route.startsWith("local_playlist/") ||
+                                route.startsWith("artist/")
+                        } == true
                 }
 
                 val isLandscape = configuration.containerDpSize.width > configuration.containerDpSize.height
@@ -780,7 +782,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(navBackStackEntry) {
                     if (inSearchScreen) {
                         val searchQuery = withContext(Dispatchers.IO) {
-                            val rawQuery = navBackStackEntry?.arguments?.getString("query")!!
+                            val rawQuery = navBackStackEntry?.arguments?.getString("query").orEmpty()
                             try {
                                 URLDecoder.decode(rawQuery, "UTF-8")
                             } catch (e: IllegalArgumentException) {
