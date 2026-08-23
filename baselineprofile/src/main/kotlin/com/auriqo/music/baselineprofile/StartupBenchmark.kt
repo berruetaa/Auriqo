@@ -2,6 +2,7 @@ package com.auriqo.music.baselineprofile
 
 import androidx.benchmark.macro.BaselineProfileMode
 import androidx.benchmark.macro.CompilationMode
+import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
@@ -18,7 +19,7 @@ class StartupBenchmark {
     @Test
     fun coldStartupWithBaselineProfile() = benchmarkRule.measureRepeated(
         packageName = PACKAGE_NAME,
-        metrics = listOf(StartupTimingMetric()),
+        metrics = listOf(StartupTimingMetric(), FrameTimingMetric()),
         compilationMode = CompilationMode.Partial(
             baselineProfileMode = BaselineProfileMode.Require,
         ),
@@ -32,7 +33,7 @@ class StartupBenchmark {
     @Test
     fun coldStartupWithoutPrecompilation() = benchmarkRule.measureRepeated(
         packageName = PACKAGE_NAME,
-        metrics = listOf(StartupTimingMetric()),
+        metrics = listOf(StartupTimingMetric(), FrameTimingMetric()),
         compilationMode = CompilationMode.None(),
         startupMode = StartupMode.COLD,
         iterations = 10,
