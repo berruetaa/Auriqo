@@ -11,14 +11,19 @@ cd "$ROOT_DIR"
   --write-verification-metadata sha256 \
   :app:compileUniversalFossDebugKotlin \
   :app:compileUniversalGmsDebugKotlin \
+  :app:assembleUniversalFossDebug \
+  :app:assembleUniversalGmsDebug \
   :app:testUniversalFossDebugUnitTest \
   :betterlyrics:testDebugUnitTest \
   :unison:test \
   :wear:testDebugUnitTest \
+  :wear:assembleDebug \
   :innertube:testDebugUnitTest \
   :letras:test \
   :canvas:test \
   --no-daemon
+
+test -s gradle/verification-metadata.xml
 
 printf '%s\n' \
   'Generated gradle/verification-metadata.xml.' \
