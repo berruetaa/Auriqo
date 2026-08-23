@@ -149,7 +149,6 @@ fun SettingDialoge(
                                 Switch(
                                     checked = useLoginForBrowse,
                                     onCheckedChange = {
-                                        com.music.innertube.YouTube.useLoginForBrowse = it
                                         onUseLoginForBrowseChange(it)
                                     },
                                     modifier = Modifier.scale(0.8f)
@@ -157,7 +156,6 @@ fun SettingDialoge(
                             },
                             onClick = {
                                 val newVal = !useLoginForBrowse
-                                com.music.innertube.YouTube.useLoginForBrowse = newVal
                                 onUseLoginForBrowseChange(newVal)
                             }
                         ),

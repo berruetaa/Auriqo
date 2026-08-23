@@ -31,8 +31,6 @@ import com.auriqo.music.utils.reportException
 import com.music.innertube.YouTube
 import com.music.innertube.YouTubeAccountSession
 import com.music.innertube.YouTubeConnectionConfig
-import com.music.innertube.applyAccountSession
-import com.music.innertube.applyConnectionConfig
 import com.music.innertube.models.IpVersion
 import com.music.innertube.models.YouTubeLocale
 import com.music.kugou.KuGou
@@ -143,14 +141,14 @@ class App : Application(), SingletonImageLoader.Factory {
 
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
-                .map(Preferences::toInnerTubeConnectionPreferences)
+                .map { preferences -> preferences.toInnerTubeConnectionPreferences() }
                 .distinctUntilChanged()
                 .collect(::applyConnectionSettings)
         }
 
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
-                .map(Preferences::toInnerTubeAccountPreferences)
+                .map { preferences -> preferences.toInnerTubeAccountPreferences() }
                 .distinctUntilChanged()
                 .collect(::applyAccountSettings)
         }

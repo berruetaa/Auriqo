@@ -40,6 +40,7 @@ import kotlin.io.encoding.Base64
 @OptIn(ExperimentalEncodingApi::class)
 class InnerTube {
     private var httpClient = createClient()
+    private var applyingConnectionConfig = false
 
     var locale = YouTubeLocale(
         gl = Locale.getDefault().country,
@@ -57,8 +58,7 @@ class InnerTube {
     var proxy: Proxy? = null
         set(value) {
             field = value
-            httpClient.close()
-            httpClient = createClient()
+            if (!applyingConnectionConfig) recreateHttpClient()
         }
     
     var proxyAuth: String? = null
@@ -66,11 +66,44 @@ class InnerTube {
     var ipVersion: IpVersion = IpVersion.IPV4
         set(value) {
             field = value
-            httpClient.close()
-            httpClient = createClient()
+            if (!applyingConnectionConfig) recreateHttpClient()
         }
 
     var useLoginForBrowse: Boolean = false
+
+    /** Apply all connection fields before rebuilding the client that captures them. */
+    @Synchronized
+    fun applyConnectionConfig(config: YouTubeConnectionConfig) {
+        val clientNeedsRebuild = proxy != config.proxy ||
+            proxyAuth != config.proxyAuth ||
+            ipVersion != config.ipVersion
+
+        applyingConnectionConfig = true
+        try {
+            locale = config.locale
+            proxy = config.proxy
+            proxyAuth = config.proxyAuth
+            useLoginForBrowse = config.useLoginForBrowse
+            ipVersion = config.ipVersion
+        } finally {
+            applyingConnectionConfig = false
+        }
+
+        if (clientNeedsRebuild) recreateHttpClient()
+    }
+
+    /** Apply account fields as one session snapshot. */
+    @Synchronized
+    fun applyAccountSession(session: YouTubeAccountSession) {
+        cookie = session.cookie
+        visitorData = session.visitorData
+        dataSyncId = session.dataSyncId
+    }
+
+    private fun recreateHttpClient() {
+        httpClient.close()
+        httpClient = createClient()
+    }
 
     @OptIn(ExperimentalSerializationApi::class)
     private fun createClient() = HttpClient(OkHttp) {

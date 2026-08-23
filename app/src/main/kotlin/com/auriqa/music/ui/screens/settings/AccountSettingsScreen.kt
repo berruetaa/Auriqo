@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
-import com.music.innertube.YouTube
 import com.music.innertube.utils.parseCookieString
 import com.auriqo.music.LocalPlayerAwareWindowInsets
 import com.auriqo.music.constants.*
@@ -202,7 +201,6 @@ fun AccountSettingsScreen(
                                 Switch(
                                     checked = useLoginForBrowse,
                                     onCheckedChange = {
-                                        YouTube.useLoginForBrowse = it
                                         onUseLoginForBrowseChange(it)
                                     },
                                     thumbContent = {
@@ -218,7 +216,6 @@ fun AccountSettingsScreen(
                             },
                             onClick = {
                                 val newValue = !useLoginForBrowse
-                                YouTube.useLoginForBrowse = newValue
                                 onUseLoginForBrowseChange(newValue)
                             }
                         ),

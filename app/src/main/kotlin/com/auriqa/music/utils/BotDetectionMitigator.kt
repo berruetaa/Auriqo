@@ -4,6 +4,7 @@ package com.auriqo.music.utils
 
 import androidx.datastore.preferences.core.edit
 import com.music.innertube.YouTube
+import com.music.innertube.YouTubeAccountSession
 import com.auriqo.music.constants.VisitorDataKey
 import com.auriqo.music.utils.cipher.CipherDeobfuscator
 import com.auriqo.music.utils.PlaybackLogManager
@@ -72,7 +73,13 @@ object BotDetectionMitigator {
             val currentLocale = YouTube.locale
 
             
-            YouTube.visitorData = null
+            YouTube.applyAccountSession(
+                YouTubeAccountSession(
+                    cookie = YouTube.cookie,
+                    visitorData = null,
+                    dataSyncId = YouTube.dataSyncId,
+                ),
+            )
             
             YouTube.refreshVisitorData().onSuccess { newData ->
                 Timber.tag(TAG).i("New visitorData obtained successfully for region ${currentLocale.gl}.")
@@ -84,7 +91,6 @@ object BotDetectionMitigator {
             }.onFailure { e ->
                 Timber.tag(TAG).e(e, "Failed to refresh visitorData during rotation")
                 
-                YouTube.locale = currentLocale
             }
         }
         
