@@ -7,23 +7,17 @@ import org.junit.Test
 class PlayerJsUrlParserTest {
     @Test
     fun iframeApi_parsesEscapedWidgetApiPath() {
-        val iframeApi =
-            """var scriptUrl = 'https:\/\/www.youtube.com\/s\/player\/2574220e\/www-widgetapi.vflset\/www-widgetapi.js';"""
-
         assertEquals(
             "https://www.youtube.com/s/player/2574220e/player_ias.vflset/en_GB/base.js",
-            PlayerJsUrlParser.fromIframeApi(iframeApi),
+            PlayerJsUrlParser.fromIframeApi(fixture("iframe-api-2574220e.js")),
         )
     }
 
     @Test
     fun embedPage_parsesPlayerEmbedJsUrl() {
-        val embedPage =
-            """{"jsUrl":"/s/player/2574220e/player_embed.vflset/es_MX/base.js"}"""
-
         assertEquals(
             "https://www.youtube.com/s/player/2574220e/player_embed.vflset/es_MX/base.js",
-            PlayerJsUrlParser.fromEmbedPage(embedPage),
+            PlayerJsUrlParser.fromEmbedPage(fixture("embed-2574220e.html")),
         )
     }
 
@@ -32,4 +26,9 @@ class PlayerJsUrlParserTest {
         assertNull(PlayerJsUrlParser.fromIframeApi("var scriptUrl = '/s/player/not-a-hash/base.js'"))
         assertNull(PlayerJsUrlParser.fromEmbedPage("{\"jsUrl\":\"/assets/player.js\"}"))
     }
+
+    private fun fixture(name: String): String =
+        requireNotNull(javaClass.getResource("/fixtures/player/$name")) {
+            "Missing player fixture: $name"
+        }.readText()
 }
