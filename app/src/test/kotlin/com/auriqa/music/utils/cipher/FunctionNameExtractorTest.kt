@@ -7,15 +7,24 @@ import org.junit.Test
 class FunctionNameExtractorTest {
     @Test
     fun signatureTimestampUsesTheAnchoredPlayerLiteral() {
-        val playerJs = """var config = {"signatureTimestamp": 20476, "sts": 1};"""
-
-        assertEquals(20476, FunctionNameExtractor.extractSignatureTimestamp(playerJs))
+        assertEquals(
+            20476,
+            FunctionNameExtractor.extractSignatureTimestamp(fixture("signature-timestamp-20476.js")),
+        )
     }
 
     @Test
     fun signatureTimestampFallbackDoesNotMatchTheEndOfAnotherIdentifier() {
-        val playerJs = """var config = {"requests": 4};"""
-
-        assertNull(FunctionNameExtractor.extractSignatureTimestamp(playerJs, knownHash = "not-a-player-hash"))
+        assertNull(
+            FunctionNameExtractor.extractSignatureTimestamp(
+                fixture("signature-timestamp-false-positive.js"),
+                knownHash = "not-a-player-hash",
+            ),
+        )
     }
+
+    private fun fixture(name: String): String =
+        requireNotNull(javaClass.getResource("/fixtures/player/$name")) {
+            "Missing player fixture: $name"
+        }.readText()
 }
