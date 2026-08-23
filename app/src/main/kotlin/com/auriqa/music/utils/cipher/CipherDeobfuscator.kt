@@ -52,7 +52,7 @@ object CipherDeobfuscator {
 
     suspend fun deobfuscateStreamUrl(signatureCipher: String, videoId: String): String? =
         resolverMutex.withLock {
-            val params = parseQueryParams(signatureCipher)
+            val params = CipherQueryParser.parse(signatureCipher)
             val obfuscatedSig = params["s"]
             val sigParam = params["sp"] ?: "signature"
             val baseUrl = params["url"]
@@ -170,16 +170,4 @@ object CipherDeobfuscator {
     private fun findN(url: String): String =
         Regex("[?&]n=([^&]+)").find(url)?.groupValues?.get(1).orEmpty()
 
-    private fun parseQueryParams(query: String): Map<String, String> {
-        val result = mutableMapOf<String, String>()
-        for (pair in query.split("&")) {
-            val idx = pair.indexOf('=')
-            if (idx > 0) {
-                val key = Uri.decode(pair.substring(0, idx))
-                val value = Uri.decode(pair.substring(idx + 1))
-                result[key] = value
-            }
-        }
-        return result
-    }
 }
