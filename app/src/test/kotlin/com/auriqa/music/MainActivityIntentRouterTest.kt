@@ -11,7 +11,12 @@ class MainActivityIntentRouterTest {
     fun `update action has highest priority`() {
         assertEquals(
             MainActivityIntentRouter.Route.Update,
-            route(MainActivityIntentRouter.Input(action = updateAction, hasData = true)),
+            route(
+                MainActivityIntentRouter.Input(
+                    action = updateAction,
+                    dataUri = "https://example.invalid/update",
+                ),
+            ),
         )
     }
 
@@ -31,7 +36,7 @@ class MainActivityIntentRouterTest {
     @Test
     fun `assistant search requires a non blank query`() {
         assertEquals(
-            MainActivityIntentRouter.Route.AssistantSearch("Daft Punk"),
+            MainActivityIntentRouter.Route.Search("Daft Punk"),
             route(
                 MainActivityIntentRouter.Input(
                     action = MainActivityIntentRouter.ACTION_MEDIA_PLAY_FROM_SEARCH,
@@ -53,21 +58,55 @@ class MainActivityIntentRouterTest {
     @Test
     fun `view and send require deep link payload`() {
         assertEquals(
-            MainActivityIntentRouter.Route.DeepLink,
-            route(MainActivityIntentRouter.Input(action = MainActivityIntentRouter.ACTION_VIEW, hasData = true)),
+            MainActivityIntentRouter.Route.OpenDeepLink("https://music.youtube.com/watch?v=test"),
+            route(
+                MainActivityIntentRouter.Input(
+                    action = MainActivityIntentRouter.ACTION_VIEW,
+                    dataUri = "https://music.youtube.com/watch?v=test",
+                ),
+            ),
         )
         assertEquals(
-            MainActivityIntentRouter.Route.DeepLink,
+            MainActivityIntentRouter.Route.OpenDeepLink("https://music.youtube.com/watch?v=test"),
             route(
                 MainActivityIntentRouter.Input(
                     action = MainActivityIntentRouter.ACTION_SEND,
-                    sharedText = "https://music.youtube.com/watch?v=test",
+                    sharedText = "Listen: https://music.youtube.com/watch?v=test.",
                 ),
             ),
         )
         assertEquals(
             MainActivityIntentRouter.Route.None,
             route(MainActivityIntentRouter.Input(action = MainActivityIntentRouter.ACTION_SEND)),
+        )
+        assertEquals(
+            MainActivityIntentRouter.Route.None,
+            route(
+                MainActivityIntentRouter.Input(
+                    action = MainActivityIntentRouter.ACTION_SEND,
+                    sharedText = "This message has no URL",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `null view uri is ignored`() {
+        assertEquals(
+            MainActivityIntentRouter.Route.None,
+            route(MainActivityIntentRouter.Input(action = MainActivityIntentRouter.ACTION_VIEW)),
+        )
+    }
+
+    @Test
+    fun `shortcuts open their corresponding tab`() {
+        assertEquals(
+            MainActivityIntentRouter.Route.OpenSearch,
+            route(MainActivityIntentRouter.Input(action = MainActivityIntentRouter.ACTION_SEARCH)),
+        )
+        assertEquals(
+            MainActivityIntentRouter.Route.OpenLibrary,
+            route(MainActivityIntentRouter.Input(action = MainActivityIntentRouter.ACTION_LIBRARY)),
         )
     }
 
