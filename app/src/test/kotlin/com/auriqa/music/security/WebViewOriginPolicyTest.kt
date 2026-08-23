@@ -29,4 +29,12 @@ class WebViewOriginPolicyTest {
         assertFalse(isAllowedYoutubeLoginUrl("http://accounts.google.com/ServiceLogin"))
         assertFalse(isAllowedYoutubeLoginUrl("https://accounts.google.com.evil.test/"))
     }
+
+    @Test
+    fun spotifyLoginPolicyAcceptsSpotifyHttpsHostsOnly() {
+        assertTrue(isAllowedSpotifyLoginUrl("https://accounts.spotify.com/login"))
+        assertTrue(isAllowedSpotifyLoginUrl("https://open.spotify.com/"))
+        assertFalse(isAllowedSpotifyLoginUrl("http://accounts.spotify.com/login"))
+        assertFalse(isAllowedSpotifyLoginUrl("https://spotify.com.evil.test/"))
+    }
 }
