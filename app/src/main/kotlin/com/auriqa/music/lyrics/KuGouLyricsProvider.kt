@@ -6,12 +6,12 @@ import android.content.Context
 import com.music.kugou.KuGou
 import com.auriqo.music.constants.EnableKugouKey
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.snapshot
 
 object KuGouLyricsProvider : LyricsProvider {
     override val name = "Kugou"
     override fun isEnabled(context: Context): Boolean =
-        context.dataStore[EnableKugouKey] ?: true
+        context.dataStore.snapshot(EnableKugouKey) ?: true
 
     override suspend fun getLyrics(
         id: String,

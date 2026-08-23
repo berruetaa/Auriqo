@@ -19,7 +19,7 @@ import com.auriqo.music.api.PlaylistAttribution
 import com.auriqo.music.api.YouTubeDataApi
 import com.auriqo.music.db.MusicDatabase
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import com.auriqo.music.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -87,12 +87,12 @@ class OnlinePlaylistViewModel @Inject constructor(
                     relatedItems.value = playlistPage.related ?: emptyList()
                     playlistIsCollaborative = playlistPage.isCollaborative
                     addLocalAttributions(playlistPage.songs)
-                    val workerUrl = context.dataStore.get(
+                    val workerUrl = context.dataStore.read(
                         YouTubeAttributionWorkerUrlKey,
                         "https://auriqo-youtube-attribution.berruetx.workers.dev",
                     )
-                    val accessToken = context.dataStore.get(YouTubeAttributionAccessTokenKey, "")
-                    val apiKey = context.dataStore.get(YouTubeDataApiKey, "")
+                    val accessToken = context.dataStore.read(YouTubeAttributionAccessTokenKey, "")
+                    val apiKey = context.dataStore.read(YouTubeDataApiKey, "")
                     val shouldLoadRemoteAttributions = localAttributions.isEmpty() ||
                         accessToken.isNotBlank() || apiKey.isNotBlank()
                     if (shouldLoadRemoteAttributions && workerUrl.isNotBlank() && accessToken.isNotBlank()) {
@@ -189,8 +189,8 @@ class OnlinePlaylistViewModel @Inject constructor(
         fetchInitialPlaylistData() 
     }
 
-    private fun applySongFilters(songs: List<SongItem>): List<SongItem> {
-        val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
+    private suspend fun applySongFilters(songs: List<SongItem>): List<SongItem> {
+        val hideVideoSongs = context.dataStore.read(HideVideoSongsKey, false)
         val uniqueSongs = songs.distinctBy { it.id }
         if (!hideVideoSongs) return uniqueSongs
 

@@ -6,12 +6,12 @@ import android.content.Context
 import com.auriqo.music.betterlyrics.BetterLyrics
 import com.auriqo.music.constants.EnableBetterLyricsKey
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.snapshot
 
 object BetterLyricsProvider : LyricsProvider {
     override val name = "BetterLyrics"
 
-    override fun isEnabled(context: Context): Boolean = context.dataStore[EnableBetterLyricsKey] ?: true
+    override fun isEnabled(context: Context): Boolean = context.dataStore.snapshot(EnableBetterLyricsKey) ?: true
 
     override suspend fun getLyrics(
         id: String,

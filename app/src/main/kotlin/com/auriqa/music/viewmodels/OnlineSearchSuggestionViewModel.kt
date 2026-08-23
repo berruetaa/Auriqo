@@ -16,7 +16,7 @@ import com.auriqo.music.constants.HideVideoSongsKey
 import com.auriqo.music.db.MusicDatabase
 import com.auriqo.music.db.entities.SearchHistory
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -54,8 +54,8 @@ constructor(
                         val parsedItem = if (parsedUrl != null) fetchParsedUrlItem(parsedUrl) else null
                         
                         val result = if (parsedUrl != null) null else YouTube.searchSuggestions(query).getOrNull()
-                        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                        val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
+                        val hideExplicit = context.dataStore.read(HideExplicitKey, false)
+                        val hideVideoSongs = context.dataStore.read(HideVideoSongsKey, false)
 
                         database
                             .searchHistory(query)

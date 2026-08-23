@@ -15,7 +15,7 @@ import com.auriqo.music.db.MusicDatabase
 import com.auriqo.music.listentogether.ListenTogetherClient
 import com.auriqo.music.listentogether.ListenTogetherManager
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.snapshot
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -105,7 +105,7 @@ object AppModule {
         @ApplicationContext context: Context,
         databaseProvider: DatabaseProvider,
     ): SimpleCache {
-        val cacheSize = context.dataStore[MaxSongCacheSizeKey] ?: 1024
+        val cacheSize = context.dataStore.snapshot(MaxSongCacheSizeKey) ?: 1024
         return SimpleCache(
             context.filesDir.resolve("exoplayer"),
             when (cacheSize) {

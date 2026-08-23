@@ -42,7 +42,7 @@ import com.auriqo.music.db.entities.Song
 import com.auriqo.music.extensions.toMediaItem
 import com.auriqo.music.models.toMediaMetadata
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import com.auriqo.music.utils.reportException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -244,8 +244,8 @@ constructor(
                                 try {
                                     val songs = YouTube.playlist(playlistId).getOrNull()?.songs
                                         ?.take(100)
-                                        ?.filterExplicit(context.dataStore.get(HideExplicitKey, false))
-                                        ?.filterVideoSongs(context.dataStore.get(HideVideoSongsKey, false) || context.dataStore.get(com.auriqo.music.constants.DataSaverEnabledKey, false))
+                                        ?.filterExplicit(context.dataStore.read(HideExplicitKey, false))
+                                        ?.filterVideoSongs(context.dataStore.read(HideVideoSongsKey, false) || context.dataStore.read(com.auriqo.music.constants.DataSaverEnabledKey, false))
                                         ?: emptyList()
 
                                     listOf(shuffleMediaItem(parentId)) + songs.map { it.toMediaItem(parentId) }
@@ -336,8 +336,8 @@ constructor(
                         .getOrNull()
                         ?.items
                         ?.filterIsInstance<SongItem>()
-                        ?.filterExplicit(context.dataStore.get(HideExplicitKey, false))
-                        ?.filterVideoSongs(context.dataStore.get(HideVideoSongsKey, false) || context.dataStore.get(com.auriqo.music.constants.DataSaverEnabledKey, false))
+                        ?.filterExplicit(context.dataStore.read(HideExplicitKey, false))
+                        ?.filterVideoSongs(context.dataStore.read(HideVideoSongsKey, false) || context.dataStore.read(com.auriqo.music.constants.DataSaverEnabledKey, false))
                         ?.filter { onlineSong ->
                             !allLocalSongs.any { localSong ->
                                 localSong.id == onlineSong.id ||
@@ -531,8 +531,8 @@ constructor(
                             .getOrNull()
                             ?.items
                             ?.filterIsInstance<SongItem>()
-                            ?.filterExplicit(context.dataStore.get(HideExplicitKey, false))
-                            ?.filterVideoSongs(context.dataStore.get(HideVideoSongsKey, false) || context.dataStore.get(com.auriqo.music.constants.DataSaverEnabledKey, false))
+                            ?.filterExplicit(context.dataStore.read(HideExplicitKey, false))
+                            ?.filterVideoSongs(context.dataStore.read(HideVideoSongsKey, false) || context.dataStore.read(com.auriqo.music.constants.DataSaverEnabledKey, false))
                             ?.filter { onlineSong ->
                                 !allLocalSongs.any { localSong ->
                                     localSong.id == onlineSong.id ||

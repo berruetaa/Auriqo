@@ -220,7 +220,7 @@ class SyncUtils @Inject constructor(
                 return@launch
             }
 
-            val lastSync = context.dataStore.get(LastFullSyncKey, 0L)
+            val lastSync = context.dataStore.read(LastFullSyncKey, 0L)
             val currentTime = LocalDateTime.now().toEpochSecond(ZoneOffset.UTC)
             if (lastSync > 0 && (currentTime - lastSync) < SYNC_COOLDOWN) {
                 return@launch
@@ -423,7 +423,7 @@ class SyncUtils @Inject constructor(
                     val localSongs = database.likedSongsByNameAsc().first()
 
                     
-                    val lastSync = context.dataStore.get(LastFullSyncKey, 0L)
+                    val lastSync = context.dataStore.read(LastFullSyncKey, 0L)
 
                     localSongs.filterNot { it.id in remoteIds || it.song.isLocal }.forEach { song ->
                         try {

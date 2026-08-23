@@ -11,7 +11,7 @@ import com.music.innertube.models.filterExplicit
 import com.auriqo.music.constants.HideExplicitKey
 import com.auriqo.music.db.MusicDatabase
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import com.auriqo.music.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -61,7 +61,7 @@ constructor(
                                         }
                                     } ?: Int.MAX_VALUE
                                 firstArtistKey
-                            }.filterExplicit(context.dataStore.get(HideExplicitKey, false))
+                            }.filterExplicit(context.dataStore.read(HideExplicitKey, false))
                 }.onFailure {
                     reportException(it)
                 }

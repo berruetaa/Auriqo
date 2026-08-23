@@ -14,7 +14,7 @@ import com.auriqo.music.constants.HideExplicitKey
 import com.auriqo.music.constants.HideVideoSongsKey
 import com.auriqo.music.models.ItemsPage
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import com.auriqo.music.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -45,8 +45,8 @@ constructor(
                         params = params,
                     ),
                 ).onSuccess { artistItemsPage ->
-                    val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                    val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
+                    val hideExplicit = context.dataStore.read(HideExplicitKey, false)
+                    val hideVideoSongs = context.dataStore.read(HideVideoSongsKey, false)
                     title.value = artistItemsPage.title
                     itemsPage.value =
                         ItemsPage(
@@ -69,8 +69,8 @@ constructor(
             YouTube
                 .artistItemsContinuation(continuation)
                 .onSuccess { artistItemsContinuationPage ->
-                    val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                    val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
+                    val hideExplicit = context.dataStore.read(HideExplicitKey, false)
+                    val hideVideoSongs = context.dataStore.read(HideVideoSongsKey, false)
                     itemsPage.update {
                         ItemsPage(
                             items =

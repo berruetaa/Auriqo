@@ -14,7 +14,7 @@ import com.auriqo.music.db.entities.PlaylistSongMap
 import com.auriqo.music.db.entities.Song
 import com.auriqo.music.db.entities.SongEntity
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
@@ -69,14 +69,14 @@ object AiRecommendationHelper {
 
         // 2. Query AI Provider
         onLog?.invoke("Connecting to AI Provider...")
-        val aiProvider = context.dataStore.get(AiProviderKey, "OpenRouter")
+        val aiProvider = context.dataStore.read(AiProviderKey, "OpenRouter")
         val jsonOutput = if (aiProvider == "Puter") {
             // Future Puter Implementation
             "[]"
         } else {
-            val apiKey = context.dataStore.get(OpenRouterApiKey, "")
-            val baseUrl = context.dataStore.get(OpenRouterBaseUrlKey, "https://openrouter.ai/api/v1/chat/completions")
-            val model = context.dataStore.get(OpenRouterModelKey, "google/gemini-2.5-flash-lite")
+            val apiKey = context.dataStore.read(OpenRouterApiKey, "")
+            val baseUrl = context.dataStore.read(OpenRouterBaseUrlKey, "https://openrouter.ai/api/v1/chat/completions")
+            val model = context.dataStore.read(OpenRouterModelKey, "google/gemini-2.5-flash-lite")
 
             if (apiKey.isEmpty()) {
                 onLog?.invoke("API Key is missing.")

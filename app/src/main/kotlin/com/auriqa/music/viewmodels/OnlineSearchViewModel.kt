@@ -20,7 +20,7 @@ import com.auriqo.music.constants.HideVideoSongsKey
 import com.auriqo.music.constants.HideYoutubeShortsKey
 import com.auriqo.music.models.ItemsPage
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import com.auriqo.music.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -53,9 +53,9 @@ constructor(
                         YouTube
                             .searchSummary(query)
                             .onSuccess {
-                                val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                                val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
-                                val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
+                                val hideExplicit = context.dataStore.read(HideExplicitKey, false)
+                                val hideVideoSongs = context.dataStore.read(HideVideoSongsKey, false)
+                                val hideYoutubeShorts = context.dataStore.read(HideYoutubeShortsKey, false)
                                 summaryPage =
                                     it.filterExplicit(
                                         hideExplicit,
@@ -69,9 +69,9 @@ constructor(
                         YouTube
                             .search(query, filter)
                             .onSuccess { result ->
-                                val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                                val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
-                                val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
+                                val hideExplicit = context.dataStore.read(HideExplicitKey, false)
+                                val hideVideoSongs = context.dataStore.read(HideVideoSongsKey, false)
+                                val hideYoutubeShorts = context.dataStore.read(HideYoutubeShortsKey, false)
                                 viewStateMap[filter.value] =
                                     ItemsPage(
                                         result.items
@@ -104,9 +104,9 @@ constructor(
             if (continuation != null) {
                 val searchResult =
                     YouTube.searchContinuation(continuation).getOrNull() ?: return@launch
-                val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
-                val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
+                val hideExplicit = context.dataStore.read(HideExplicitKey, false)
+                val hideVideoSongs = context.dataStore.read(HideVideoSongsKey, false)
+                val hideYoutubeShorts = context.dataStore.read(HideYoutubeShortsKey, false)
                 val newItems = searchResult.items
                     .filterExplicit(hideExplicit)
                     .let { items ->
