@@ -29,6 +29,7 @@ Security fixes are evaluated against the latest `main` and the latest published 
 - `app/persistent-debug.keystore` is deterministic debug-only signing material used for local upgrades. It is not a release credential and must never sign an official artifact.
 - The Better Lyrics renderer is local-only and origin-scoped; provider/theme network access stays in Kotlin. Remote JavaScript is not an accepted theme format.
 - The Unison private identity is encrypted with Android Keystore. A user-requested identity export contains the private JWK in plain JSON and must be handled as a credential.
+- Last.fm's direct native-client protocol requires a shared secret to generate request signatures. A packaged Android client cannot keep that value confidential; treat it as a revocable public-client credential and see [docs/LASTFM_SECURITY.md](docs/LASTFM_SECURITY.md) for the exact boundary and alternatives.
 
 These notes describe residual risks in the current tree; they are not claims that the app is secure against all threats.
 
@@ -42,6 +43,11 @@ The following must remain local and untracked:
 - device logs, crash dumps and generated APKs.
 
 The FOSS build is intended to compile without private credentials. A public APK cannot keep a client secret: any value compiled into `BuildConfig` can be extracted. The CI/release implications are documented in [docs/CI_RELEASE_REVIEW.md](docs/CI_RELEASE_REVIEW.md).
+
+The Last.fm shared secret is a documented protocol exception to the general rule above, not a secure
+storage mechanism. The direct Android client currently needs it locally to produce Last.fm
+`api_sig` values. Do not reuse it as a privileged backend secret; see
+[docs/LASTFM_SECURITY.md](docs/LASTFM_SECURITY.md).
 
 Two Google/YouTube client API identifiers are intentionally present in the InnerTube/PoToken
 protocol source and are recoverable from every APK. Treat them as public client identifiers, not as
