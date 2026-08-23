@@ -28,7 +28,7 @@ import com.auriqo.music.constants.ListenTogetherSessionTokenKey
 import com.auriqo.music.constants.ListenTogetherUserIdKey
 import com.auriqo.music.utils.NetworkConnectivityObserver
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -168,6 +169,8 @@ class ListenTogetherClient @Inject constructor(
     
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    @Volatile
+    private var autoApprovalEnabled = false
     
     
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -212,6 +215,12 @@ class ListenTogetherClient @Inject constructor(
     init {
         setInstance(this)
         ensureNotificationChannel()
+
+        scope.launch {
+            context.dataStore.data.collect { preferences ->
+                autoApprovalEnabled = preferences[ListenTogetherAutoApprovalKey] ?: false
+            }
+        }
         
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             loadPersistedSession()
@@ -251,13 +260,13 @@ class ListenTogetherClient @Inject constructor(
     }
     
     
-    private fun loadPersistedSession() {
+    private suspend fun loadPersistedSession() {
         try {
-            val token = context.dataStore.get(ListenTogetherSessionTokenKey, "")
-            val roomCode = context.dataStore.get(ListenTogetherRoomCodeKey, "")
-            val userId = context.dataStore.get(ListenTogetherUserIdKey, "")
-            val isHost = context.dataStore.get(ListenTogetherIsHostKey, false)
-            val timestamp = context.dataStore.get(ListenTogetherSessionTimestampKey, 0L)
+            val token = context.dataStore.read(ListenTogetherSessionTokenKey, "")
+            val roomCode = context.dataStore.read(ListenTogetherRoomCodeKey, "")
+            val userId = context.dataStore.read(ListenTogetherUserIdKey, "")
+            val isHost = context.dataStore.read(ListenTogetherIsHostKey, false)
+            val timestamp = context.dataStore.read(ListenTogetherSessionTimestampKey, 0L)
             
             
             if (token.isNotEmpty() && roomCode.isNotEmpty() && 
@@ -281,9 +290,9 @@ class ListenTogetherClient @Inject constructor(
     }
     
     
-    private fun loadBlockedUsernames() {
+    private suspend fun loadBlockedUsernames() {
         try {
-            val blockedJson = context.dataStore.get(com.auriqo.music.constants.ListenTogetherBlockedUsersKey, "")
+            val blockedJson = context.dataStore.read(com.auriqo.music.constants.ListenTogetherBlockedUsersKey, "")
             val blockedList = if (blockedJson.isNotEmpty()) {
                 json.decodeFromString<List<String>>(blockedJson)
             } else {
@@ -398,8 +407,8 @@ class ListenTogetherClient @Inject constructor(
         .pingInterval(30, TimeUnit.SECONDS)
         .build()
 
-    private fun getServerUrl(): String {
-        val configured = context.dataStore.get(ListenTogetherServerUrlKey, DEFAULT_SERVER_URL)
+    private suspend fun getServerUrl(): String {
+        val configured = context.dataStore.read(ListenTogetherServerUrlKey, DEFAULT_SERVER_URL)
         return configured.takeIf { ListenTogetherServers.isAllowedServerUrl(it) } ?: DEFAULT_SERVER_URL
     }
     
@@ -439,7 +448,12 @@ class ListenTogetherClient @Inject constructor(
         }
 
         _connectionState.value = ConnectionState.CONNECTING
-        val serverUrl = getServerUrl()
+        scope.launch {
+            connectToServer(getServerUrl())
+        }
+    }
+
+    private fun connectToServer(serverUrl: String) {
         log(LogLevel.INFO, "Connecting to server", serverUrl)
 
         
@@ -811,8 +825,6 @@ class ListenTogetherClient @Inject constructor(
                     _pendingJoinRequests.value += payload
                     log(LogLevel.INFO, "Join request received", "User: ${payload.username}")
                     
-                    
-                    val autoApprovalEnabled = context.dataStore.get(ListenTogetherAutoApprovalKey, false)
                     
                     if (_role.value == RoomRole.HOST) {
                         if (autoApprovalEnabled) {

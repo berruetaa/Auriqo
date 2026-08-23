@@ -12,15 +12,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.auriqo.music.extensions.toEnum
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlin.properties.ReadOnlyProperty
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -32,36 +37,36 @@ suspend fun <T> DataStore<Preferences>.read(
     defaultValue: T,
 ): T = data.first()[key] ?: defaultValue
 
-@Deprecated(
-    message = "Blocking preference reads can stall the caller. Use read() or the DataStore flow instead.",
-)
-operator fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>): T? =
-    runBlocking(Dispatchers.IO) {
-        read(key)
-    }
+/**
+ * Transitional non-blocking snapshot for legacy synchronous call sites.
+ *
+ * The first call returns the safe default while DataStore is being collected; subsequent calls
+ * observe the latest emitted preferences. New code must use [read] or collect [DataStore.data]
+ * directly so it can handle the initial load explicitly.
+ */
+private object DataStoreSnapshotRegistry {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val snapshots = ConcurrentHashMap<DataStore<Preferences>, StateFlow<Preferences>>()
+
+    fun current(dataStore: DataStore<Preferences>): Preferences =
+        snapshots.getOrPut(dataStore) {
+            dataStore.data.stateIn(scope, SharingStarted.Eagerly, emptyPreferences())
+        }.value
+}
 
 @Deprecated(
-    message = "Blocking preference reads can stall the caller. Use read() or the DataStore flow instead.",
+    message = "Use suspend read() or collect DataStore.data; this is a non-blocking transitional snapshot.",
+)
+operator fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>): T? =
+    DataStoreSnapshotRegistry.current(this)[key]
+
+@Deprecated(
+    message = "Use suspend read() or collect DataStore.data; this is a non-blocking transitional snapshot.",
 )
 fun <T> DataStore<Preferences>.get(
     key: Preferences.Key<T>,
     defaultValue: T,
-): T =
-    runBlocking(Dispatchers.IO) {
-        read(key, defaultValue)
-    }
-
-fun <T> preference(
-    context: Context,
-    key: Preferences.Key<T>,
-    defaultValue: T,
-) = ReadOnlyProperty<Any?, T> { _, _ -> context.dataStore[key] ?: defaultValue }
-
-inline fun <reified T : Enum<T>> enumPreference(
-    context: Context,
-    key: Preferences.Key<String>,
-    defaultValue: T,
-) = ReadOnlyProperty<Any?, T> { _, _ -> context.dataStore[key].toEnum(defaultValue) }
+): T = DataStoreSnapshotRegistry.current(this)[key] ?: defaultValue
 
 @Composable
 fun <T> rememberPreference(

@@ -3992,8 +3992,8 @@ class MusicService :
     private fun startCrossfade(plan: AutomixPlan? = null) {
         if (isCrossfading.value) return
 
-        val savedRepeatMode = runBlocking { dataStore.get(RepeatModeKey, REPEAT_MODE_OFF) }
-        val savedShuffleEnabled = runBlocking { dataStore.get(ShuffleModeKey, false) }
+        val savedRepeatMode = cachedRepeatMode
+        val savedShuffleEnabled = cachedShuffleEnabled
 
         val targetIndex = if (savedRepeatMode == REPEAT_MODE_ONE) {
             player.currentMediaItemIndex

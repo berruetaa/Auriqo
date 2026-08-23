@@ -9,7 +9,7 @@ import com.auriqo.music.constants.AppFontKey
 import com.auriqo.music.constants.LyricsFontKey
 import com.auriqo.music.constants.PlayerFontKey
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.get
+import com.auriqo.music.utils.read
 
 /**
  * The parts of the app that can carry their own font.
@@ -48,13 +48,12 @@ val LocalPlayerFontFamily = staticCompositionLocalOf<FontFamily?> { null }
 /**
  * The id [this] target actually renders with, inheritance already applied.
  *
- * For the non-Compose paths that cannot read a preference as state; the read blocks, so keep it
- * off the main thread.
+ * This is a suspend read because DataStore access must never block the caller.
  */
-fun FontTarget.resolvedFontId(context: Context): String {
-    val stored = context.dataStore.get(preferenceKey, defaultId)
+ suspend fun FontTarget.resolvedFontId(context: Context): String {
+    val stored = context.dataStore.read(preferenceKey, defaultId)
     return if (stored == AppFont.INHERIT_ID) {
-        context.dataStore.get(FontTarget.APP.preferenceKey, FontTarget.APP.defaultId)
+        context.dataStore.read(FontTarget.APP.preferenceKey, FontTarget.APP.defaultId)
     } else {
         stored
     }

@@ -34,7 +34,7 @@ import com.auriqo.music.di.DownloadCache
 import com.auriqo.music.di.PlayerCache
 import com.auriqo.music.ui.utils.resize
 import com.auriqo.music.utils.YTPlayerUtils
-import com.auriqo.music.utils.enumPreference
+import com.auriqo.music.utils.dataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -44,6 +44,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -65,11 +66,24 @@ constructor(
     @PlayerCache val playerCache: SimpleCache,
 ) {
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
-    private val downloadQuality by enumPreference(context, com.auriqo.music.constants.DownloadQualityKey, com.auriqo.music.constants.DownloadQuality.YOUTUBE)
-    private val ipVersion by enumPreference(context, IpVersionKey, IpVersion.AUTO)
+    private val downloadQuality = MutableStateFlow(com.auriqo.music.constants.DownloadQuality.YOUTUBE)
+    private val ipVersion = MutableStateFlow(IpVersion.AUTO)
     private val songUrlCache = HashMap<String, Pair<String, Long>>()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        scope.launch {
+            context.dataStore.data.collectLatest { preferences ->
+                downloadQuality.value = preferences[com.auriqo.music.constants.DownloadQualityKey]
+                    ?.let { com.auriqo.music.constants.DownloadQuality.entries.firstOrNull { value -> value.name == it } }
+                    ?: com.auriqo.music.constants.DownloadQuality.YOUTUBE
+                ipVersion.value = preferences[IpVersionKey]
+                    ?.let { IpVersion.entries.firstOrNull { value -> value.name == it } }
+                    ?: IpVersion.AUTO
+            }
+        }
+    }
 
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
 
@@ -81,7 +95,7 @@ constructor(
                         .dns(object : Dns {
                             override fun lookup(hostname: String): List<InetAddress> {
                                 val addresses = Dns.SYSTEM.lookup(hostname)
-                                return when (this@DownloadUtil.ipVersion) {
+                                return when (this@DownloadUtil.ipVersion.value) {
                                     IpVersion.IPV4 -> addresses.filter { it is Inet4Address }.ifEmpty { addresses }
                                     IpVersion.IPV6 -> addresses.filter { it is Inet6Address }.ifEmpty { addresses }
                                     IpVersion.AUTO -> addresses
@@ -102,7 +116,7 @@ constructor(
         ) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
 
-            songUrlCache["${mediaId}_${downloadQuality.name}"]?.takeIf { it.second > System.currentTimeMillis() }?.let {
+            songUrlCache["${mediaId}_${downloadQuality.value.name}"]?.takeIf { it.second > System.currentTimeMillis() }?.let {
                 return@Factory dataSpec.withUri(it.first.toUri())
             }
 
@@ -167,7 +181,7 @@ constructor(
 
             val streamUrl = playbackData.streamUrl
 
-            songUrlCache["${mediaId}_${downloadQuality.name}"] = streamUrl to playbackData.streamExpiresInSeconds * 1000L
+            songUrlCache["${mediaId}_${downloadQuality.value.name}"] = streamUrl to playbackData.streamExpiresInSeconds * 1000L
             dataSpec.withUri(streamUrl.toUri())
         }
 
