@@ -241,8 +241,8 @@ class App : Application(), SingletonImageLoader.Factory {
                     dataSyncId = dataSyncId,
                 ),
             )
-        } catch (e: Exception) {
-            Timber.e(e, "Could not apply InnerTube account session. Clearing existing account state.")
+        } catch (_: Exception) {
+            Timber.e("Could not apply InnerTube account session. Clearing existing account state.")
             forgetAccount(this@App)
         }
     }
