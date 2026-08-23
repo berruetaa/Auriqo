@@ -1,5 +1,3 @@
-
-
 package com.auriqo.music.lyrics
 
 import android.content.Context
@@ -14,15 +12,13 @@ import com.auriqo.music.utils.NetworkConnectivityObserver
 import com.auriqo.music.utils.dataStore
 import com.auriqo.music.utils.reportException
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -33,25 +29,26 @@ constructor(
     @ApplicationContext private val context: Context,
     private val networkConnectivity: NetworkConnectivityObserver,
 ) {
-    
     private suspend fun resolveLyricsProviders(): List<LyricsProvider> {
         val preferences = context.dataStore.data.first()
         val orderString = preferences[LyricsProviderOrderKey].orEmpty()
 
-        if (orderString.isNotBlank()) {
-            return LyricsProviderRegistry.getOrderedProviders(orderString)
+        val order = if (orderString.isNotBlank()) {
+            LyricsProviderRegistry.deserializeProviderOrder(orderString)
+        } else {
+            val preferredEnum = preferences[PreferredLyricsProviderKey]
+                .toEnum(PreferredLyricsProvider.YOULYPLUS)
+            val preferredName = LyricsProviderRegistry.getProviderNameForEnum(preferredEnum)
+            val defaultOrder = LyricsProviderRegistry.getDefaultProviderOrder()
+            listOf(preferredName) + defaultOrder.filter { it != preferredName }
         }
 
-        
-        val preferredEnum = preferences[PreferredLyricsProviderKey]
-            .toEnum(PreferredLyricsProvider.YOULYPLUS)
-        val preferredName = LyricsProviderRegistry.getProviderNameForEnum(preferredEnum)
-        val defaultOrder = LyricsProviderRegistry.getDefaultProviderOrder()
-        val migratedOrder = listOf(preferredName) + defaultOrder.filter { it != preferredName }
-        return migratedOrder.mapNotNull { LyricsProviderRegistry.getProviderByName(it) }
+        return LyricsProviderRegistry.getOrderedEnabledProviders(
+            order = order,
+            preferences = preferences,
+            context = context,
+        )
     }
-
-
 
     private val cache = LruCache<String, List<LyricsResult>>(MAX_CACHE_SIZE)
     private var currentLyricsJob: Job? = null
@@ -69,12 +66,12 @@ constructor(
         } catch (e: Exception) {
             true
         }
-        
+
         if (!isNetworkAvailable) {
             return LyricsWithProvider(LYRICS_NOT_FOUND, "Unknown")
         }
 
-        val providers = resolveLyricsProviders().filter { it.isEnabled(context) }
+        val providers = resolveLyricsProviders()
         if (providers.isEmpty()) return LyricsWithProvider(LYRICS_NOT_FOUND, "Unknown")
 
         return coroutineScope {
@@ -153,7 +150,7 @@ constructor(
         } catch (e: Exception) {
             true
         }
-        
+
         if (!isNetworkAvailable) {
             return
         }
@@ -161,22 +158,20 @@ constructor(
         val allResult = java.util.concurrent.CopyOnWriteArrayList<LyricsResult>()
         val providers = resolveLyricsProviders()
         currentLyricsJob = CoroutineScope(SupervisorJob()).launch {
-            val jobs = providers.mapNotNull { provider ->
-                if (provider.isEnabled(context)) {
-                    launch {
-                        try {
-                            provider.getAllLyrics(mediaId, songTitle, songArtists, duration, album) { lyrics ->
-                                val result = LyricsResult(provider.name, lyrics)
-                                allResult += result
-                                callback(result)
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            reportException(e)
+            val jobs = providers.map { provider ->
+                launch {
+                    try {
+                        provider.getAllLyrics(mediaId, songTitle, songArtists, duration, album) { lyrics ->
+                            val result = LyricsResult(provider.name, lyrics)
+                            allResult += result
+                            callback(result)
                         }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        reportException(e)
                     }
-                } else null
+                }
             }
             jobs.forEach { it.join() }
             cache.put(cacheKey, allResult.toList())
