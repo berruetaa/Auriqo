@@ -83,56 +83,79 @@ import kotlin.random.Random
 object YouTube {
     private val innerTube = InnerTube()
 
+    /** Apply connection settings through the single InnerTube configuration boundary. */
+    @Synchronized
+    fun applyConnectionConfig(config: YouTubeConnectionConfig) {
+        innerTube.applyConnectionConfig(config)
+    }
+
+    /** Apply account/session settings through the single InnerTube session boundary. */
+    @Synchronized
+    fun applyAccountSession(session: YouTubeAccountSession) {
+        innerTube.applyAccountSession(session)
+    }
+
     var locale: YouTubeLocale
         get() = innerTube.locale
-        set(value) {
+        internal set(value) {
             innerTube.locale = value
         }
     var visitorData: String?
         get() = innerTube.visitorData
-        set(value) {
+        internal set(value) {
             innerTube.visitorData = value
         }
     var dataSyncId: String?
         get() = innerTube.dataSyncId
-        set(value) {
+        internal set(value) {
             innerTube.dataSyncId = value
         }
     var cookie: String?
         get() = innerTube.cookie
-        set(value) {
+        internal set(value) {
             innerTube.cookie = value
         }
     var proxy: Proxy?
         get() = innerTube.proxy
-        set(value) {
+        internal set(value) {
             innerTube.proxy = value
         }
 
     var proxyAuth: String?
         get() = innerTube.proxyAuth
-        set(value) {
+        internal set(value) {
             innerTube.proxyAuth = value
         }
     var useLoginForBrowse: Boolean
         get() = innerTube.useLoginForBrowse
-        set(value) {
+        internal set(value) {
             innerTube.useLoginForBrowse = value
         }
 
     var ipVersion: com.music.innertube.models.IpVersion
         get() = innerTube.ipVersion
-        set(value) {
+        internal set(value) {
             innerTube.ipVersion = value
         }
 
     suspend fun refreshVisitorData(): Result<String> = visitorData().onSuccess {
-        visitorData = it
+        applyAccountSession(
+            YouTubeAccountSession(
+                cookie = cookie,
+                visitorData = it,
+                dataSyncId = dataSyncId,
+            ),
+        )
     }
 
     fun clearGuestSession() {
-        visitorData = null
-        dataSyncId = null
+        applyAccountSession(
+            YouTubeAccountSession(
+                cookie = cookie,
+                visitorData = null,
+                dataSyncId = null,
+            ),
+        )
     }
 
     suspend fun searchSuggestions(query: String): Result<SearchSuggestions> = runCatching {

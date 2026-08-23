@@ -24,19 +24,3 @@ data class YouTubeAccountSession(
     val visitorData: String?,
     val dataSyncId: String?,
 )
-
-/** Apply one coherent connection snapshot to the shared InnerTube facade. */
-fun YouTube.applyConnectionConfig(config: YouTubeConnectionConfig) {
-    locale = config.locale
-    proxy = config.proxy
-    proxyAuth = config.proxyAuth
-    useLoginForBrowse = config.useLoginForBrowse
-    ipVersion = config.ipVersion
-}
-
-/** Apply one coherent account snapshot to the shared InnerTube facade. */
-fun YouTube.applyAccountSession(session: YouTubeAccountSession) {
-    cookie = session.cookie
-    visitorData = session.visitorData
-    dataSyncId = session.dataSyncId
-}

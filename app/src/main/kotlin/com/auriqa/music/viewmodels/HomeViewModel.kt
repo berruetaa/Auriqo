@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.music.innertube.YouTube
+import com.music.innertube.YouTubeAccountSession
 import com.music.innertube.models.AlbumItem
 import com.music.innertube.models.Artist
 import com.music.innertube.models.PlaylistItem
@@ -700,7 +701,13 @@ class HomeViewModel @Inject constructor(
                         if (cookie != null && cookie.isNotEmpty()) {
 
                             
-                            YouTube.cookie = cookie
+                            YouTube.applyAccountSession(
+                                YouTubeAccountSession(
+                                    cookie = cookie,
+                                    visitorData = YouTube.visitorData,
+                                    dataSyncId = YouTube.dataSyncId,
+                                ),
+                            )
 
                             
                             YouTube.accountInfo().onSuccess { info ->

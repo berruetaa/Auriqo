@@ -28,6 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavController
 import com.music.innertube.YouTube
+import com.music.innertube.YouTubeAccountSession
 import com.auriqo.music.LocalPlayerAwareWindowInsets
 import com.auriqo.music.R
 import com.auriqo.music.constants.AccountChannelHandleKey
@@ -83,9 +84,13 @@ fun LoginScreen(
                                 delay(500)
 
                                 
-                                YouTube.cookie = innerTubeCookie
-                                YouTube.dataSyncId = dataSyncId
-                                YouTube.visitorData = visitorData
+                                YouTube.applyAccountSession(
+                                    YouTubeAccountSession(
+                                        cookie = innerTubeCookie,
+                                        dataSyncId = dataSyncId,
+                                        visitorData = visitorData,
+                                    ),
+                                )
 
                                 Timber.d("Login: YouTube object initialized, validating...")
 
