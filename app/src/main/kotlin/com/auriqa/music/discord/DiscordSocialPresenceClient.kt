@@ -14,7 +14,6 @@ object DiscordSocialPresenceClient {
 
     private val mutex = Mutex()
     private var gateway: GatewayClient? = null
-    private var scope: CoroutineScope? = null
     private var activeToken: String? = null
 
     val isStarted: Boolean
@@ -69,32 +68,31 @@ object DiscordSocialPresenceClient {
             mutex.withLock {
                 gateway?.disconnect()
                 gateway = null
-                scope?.cancel()
-                scope = null
                 activeToken = null
                 DiscordAssetRegistrar.clearCache()
                 Result.success(Unit)
             }
         }
 
-    private fun ensureConnected(token: String): Result<Unit> {
+    private suspend fun ensureConnected(token: String): Result<Unit> {
         if (activeToken == token && gateway != null) return Result.success(Unit)
 
         gateway?.disconnect()
         gateway = null
-        scope?.cancel()
-        scope = null
 
-        val newScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val newGateway = GatewayClient()
 
-        return runCatching {
-            runBlocking {
-                newGateway.connect(token)
-            }
-            scope = newScope
+        return try {
+            newGateway.connect(token)
             gateway = newGateway
             activeToken = token
+            Result.success(Unit)
+        } catch (error: CancellationException) {
+            newGateway.disconnect()
+            throw error
+        } catch (error: Exception) {
+            newGateway.disconnect()
+            Result.failure(error)
         }
     }
 
