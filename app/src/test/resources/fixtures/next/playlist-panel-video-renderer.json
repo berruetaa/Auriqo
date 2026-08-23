@@ -1,0 +1,38 @@
+{
+  "title": {
+    "runs": [
+      { "text": "Fixture Song", "navigationEndpoint": null }
+    ]
+  },
+  "lengthText": {
+    "runs": [
+      { "text": "3:21", "navigationEndpoint": null }
+    ]
+  },
+  "longBylineText": {
+    "runs": [
+      {
+        "text": "Fixture Artist",
+        "navigationEndpoint": { "browseEndpoint": { "browseId": "UC_fixture_artist" } }
+      },
+      { "text": " • ", "navigationEndpoint": null },
+      {
+        "text": "Fixture Album",
+        "navigationEndpoint": { "browseEndpoint": { "browseId": "MPRE_fixture_album" } }
+      }
+    ]
+  },
+  "shortBylineText": null,
+  "badges": null,
+  "videoId": "fixture-video-id",
+  "playlistSetVideoId": null,
+  "selected": false,
+  "thumbnail": {
+    "thumbnails": [
+      { "url": "https://img.example.invalid/fixture.jpg", "width": 120, "height": 90 }
+    ]
+  },
+  "unplayableText": null,
+  "menu": null,
+  "navigationEndpoint": { "watchEndpoint": { "videoId": "fixture-video-id" } }
+}

@@ -1,0 +1,1 @@
+url=https%3A%2F%2Fcdn.example.invalid%2Fvideoplayback%3Fexpire%3D1700000000%26n%3Dsanitized%26foo%3Dbar&sp=sig&s=SANITIZED_SIGNATURE
