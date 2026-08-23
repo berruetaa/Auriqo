@@ -49,7 +49,7 @@ class AudioFocusStateMachine(
                 Transition(
                     state = State(
                         hasFocus = true,
-                        resumeOnGain = if (shouldResume) false else state.resumeOnGain,
+                        resumeOnGain = false,
                         lastEvent = event,
                     ),
                     actions = buildList {
@@ -67,7 +67,7 @@ class AudioFocusStateMachine(
             Event.LOSS -> Transition(
                 state = State(
                     hasFocus = false,
-                    resumeOnGain = isPlaying,
+                    resumeOnGain = false,
                     lastEvent = event,
                 ),
                 actions = buildList {
@@ -86,9 +86,9 @@ class AudioFocusStateMachine(
             )
 
             Event.LOSS_TRANSIENT_CAN_DUCK -> Transition(
-                state = State(
-                    hasFocus = false,
-                    resumeOnGain = isPlaying,
+                state = state.copy(
+                    hasFocus = true,
+                    resumeOnGain = false,
                     lastEvent = event,
                 ),
                 actions = if (isPlaying) listOf(Action.DUCK) else emptyList(),
