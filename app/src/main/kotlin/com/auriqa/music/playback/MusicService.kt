@@ -454,6 +454,8 @@ class MusicService :
 
     lateinit var player: ExoPlayer
         private set
+    @Volatile
+    private var playbackMetadataSnapshot: Map<String, com.auriqo.music.models.MediaMetadata> = emptyMap()
     private var secondaryPlayer: ExoPlayer? = null
     private var fadingPlayer: ExoPlayer? = null
     val isCrossfading = MutableStateFlow(false)
@@ -2257,6 +2259,11 @@ class MusicService :
         if (events.containsAny(EVENT_TIMELINE_CHANGED, EVENT_POSITION_DISCONTINUITY)) {
             currentMediaMetadata.value = player.currentMetadata
         }
+        if (events.contains(EVENT_TIMELINE_CHANGED)) {
+            playbackMetadataSnapshot = player.mediaItems
+                .mapNotNull { item -> item.metadata?.let { item.mediaId to it } }
+                .toMap()
+        }
 
         
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
@@ -3019,12 +3026,20 @@ class MusicService :
         mediaId: String,
         quality: com.auriqo.music.constants.AudioQuality,
     ): YTPlayerUtils.PlaybackData {
-        val playbackData = runBlocking(Dispatchers.IO) {
-            val dbSong = database.song(mediaId).firstOrNull()
-            val knownArtist = dbSong?.artists?.joinToString { it.name }?.replace(" - Topic", "")
-            val knownTitle = dbSong?.song?.title
-            val knownDuration = dbSong?.song?.duration?.let { if (it > 0) it * 1000L else null }
+        val queueMetadata = lookupPlaybackMetadata(
+            playbackMetadataSnapshot.asSequence().map { it.key to it.value },
+            mediaId,
+        )
+        val knownArtist = queueMetadata?.artists
+            ?.joinToString { it.name }
+            ?.replace(" - Topic", "")
+        val knownTitle = queueMetadata?.title
+        val knownDuration = queueMetadata?.duration?.let { if (it > 0) it * 1000L else null }
 
+        // ResolvingDataSource.Factory exposes a synchronous resolver. This is an intentional
+        // adapter on Media3's loading thread; keep Room and player reads out of this boundary and
+        // never call it from the service or UI thread directly.
+        val playbackData = runBlocking(Dispatchers.IO) {
             YTPlayerUtils.playerResponseForPlayback(
                 mediaId,
                 audioQuality = quality,
@@ -3083,11 +3098,9 @@ class MusicService :
 
             
             var shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
-            
-            val dbFormat = runBlocking(Dispatchers.IO) { database.format(mediaId).firstOrNull() }
-            
+
             val cachedLength = androidx.media3.datasource.cache.ContentMetadata.getContentLength(downloadCache.getContentMetadata(mediaId))
-                .takeIf { it != androidx.media3.common.C.LENGTH_UNSET.toLong() } ?: dbFormat?.contentLength ?: -1L
+                .takeIf { it != androidx.media3.common.C.LENGTH_UNSET.toLong() } ?: -1L
             val isFullyDownloaded = cachedLength > 0 && downloadCache.isCached(mediaId, 0, cachedLength)
 
             val activeQualityInCache = streamRecovery.activeQuality(mediaId)?.let {
@@ -3180,7 +3193,7 @@ class MusicService :
                 
                 var targetCacheKey = mediaId
                 
-                if (dbFormat != null && shouldBypassCache) {
+                if (shouldBypassCache) {
                     Timber.tag(TAG).i("Bypassed cache. Using custom cache key to prevent intercept.")
                     targetCacheKey = "${mediaId}_diff"
                 }
