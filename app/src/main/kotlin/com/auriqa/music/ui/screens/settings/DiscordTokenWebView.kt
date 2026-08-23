@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import com.auriqo.music.security.isAllowedDiscordWebViewUrl
+import com.auriqo.music.security.isDiscordTokenPage
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -25,6 +27,9 @@ fun DiscordTokenWebView(
                 )
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
                 settings.loadWithOverviewMode = true
                 settings.useWideViewPort = true
                 settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -45,7 +50,7 @@ fun DiscordTokenWebView(
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String) {
                         super.onPageFinished(view, url)
-                        if (url.contains("discord.com/channels") || url.contains("discord.com/app")) {
+                        if (isDiscordTokenPage(url)) {
                             view.evaluateJavascript(
                                 """
                                 (function() {
@@ -66,6 +71,23 @@ fun DiscordTokenWebView(
                                 """.trimIndent(),
                                 null
                             )
+                        }
+                    }
+
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView,
+                        request: android.webkit.WebResourceRequest,
+                    ): Boolean = !isAllowedDiscordWebViewUrl(request.url.toString())
+
+                    override fun onPageStarted(
+                        view: WebView,
+                        url: String,
+                        favicon: android.graphics.Bitmap?,
+                    ) {
+                        super.onPageStarted(view, url, favicon)
+                        if (url != "about:blank" && !isAllowedDiscordWebViewUrl(url)) {
+                            view.stopLoading()
+                            view.loadUrl("about:blank")
                         }
                     }
                 }
