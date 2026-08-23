@@ -30,6 +30,7 @@ val sourceRevision = project.findProperty("gitSha")?.toString()
     ?: currentGitRevision()
 plugins {
     id("com.android.application")
+    id("androidx.baselineprofile")
     alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.compose.compiler)
@@ -266,6 +267,9 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 dependencies {
+    baselineProfile(project(":baselineprofile"))
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+
     implementation(libs.rhino)
 
     // Firebase - GMS flavor only (excluded from F-Droid / FOSS builds)
