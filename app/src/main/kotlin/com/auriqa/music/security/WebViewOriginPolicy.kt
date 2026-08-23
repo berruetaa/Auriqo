@@ -25,3 +25,8 @@ internal fun isAllowedYoutubeLoginUrl(value: String): Boolean {
     return isHostOrSubdomain(uri.host, "google.com") ||
         isHostOrSubdomain(uri.host, "youtube.com")
 }
+
+internal fun isAllowedSpotifyLoginUrl(value: String): Boolean {
+    val uri = parseHttpsUri(value) ?: return false
+    return isHostOrSubdomain(uri.host, "spotify.com")
+}

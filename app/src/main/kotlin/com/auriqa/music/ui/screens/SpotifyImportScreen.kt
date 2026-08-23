@@ -47,6 +47,7 @@ import com.auriqo.music.ui.component.Material3SettingsGroup
 import com.auriqo.music.ui.component.Material3SettingsItem
 import com.auriqo.music.ui.utils.backToMain
 import com.auriqo.music.spotify.SpotifyAuth
+import com.auriqo.music.security.isAllowedSpotifyLoginUrl
 import android.net.Uri
 
 @Composable
@@ -371,18 +372,27 @@ private fun SpotifyLoginSheet(
                             override fun shouldOverrideUrlLoading(
                                 view: WebView,
                                 request: WebResourceRequest,
-                            ): Boolean = captureCookies(request.url?.toString())
+                            ): Boolean {
+                                val url = request.url?.toString().orEmpty()
+                                return !isAllowedSpotifyLoginUrl(url) || captureCookies(url)
+                            }
 
                             override fun onPageStarted(
                                 view: WebView,
                                 url: String?,
                                 favicon: android.graphics.Bitmap?,
                             ) {
-                                captureCookies(url)
+                                if (url != null && isAllowedSpotifyLoginUrl(url)) {
+                                    captureCookies(url)
+                                } else {
+                                    view.stopLoading()
+                                }
                             }
 
                             override fun onPageFinished(view: WebView, url: String?) {
-                                captureCookies(url)
+                                if (url != null && isAllowedSpotifyLoginUrl(url)) {
+                                    captureCookies(url)
+                                }
                             }
                         }
                         webView = this
