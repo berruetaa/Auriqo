@@ -24,17 +24,31 @@ import kotlin.properties.ReadOnlyProperty
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
+suspend fun <T> DataStore<Preferences>.read(key: Preferences.Key<T>): T? =
+    data.first()[key]
+
+suspend fun <T> DataStore<Preferences>.read(
+    key: Preferences.Key<T>,
+    defaultValue: T,
+): T = data.first()[key] ?: defaultValue
+
+@Deprecated(
+    message = "Blocking preference reads can stall the caller. Use read() or the DataStore flow instead.",
+)
 operator fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>): T? =
     runBlocking(Dispatchers.IO) {
-        data.first()[key]
+        read(key)
     }
 
+@Deprecated(
+    message = "Blocking preference reads can stall the caller. Use read() or the DataStore flow instead.",
+)
 fun <T> DataStore<Preferences>.get(
     key: Preferences.Key<T>,
     defaultValue: T,
 ): T =
     runBlocking(Dispatchers.IO) {
-        data.first()[key] ?: defaultValue
+        read(key, defaultValue)
     }
 
 fun <T> preference(
@@ -58,13 +72,13 @@ fun <T> rememberPreference(
     val coroutineScope = rememberCoroutineScope()
 
     val state =
-        remember {
+        remember(key, defaultValue) {
             context.dataStore.data
                 .map { it[key] ?: defaultValue }
                 .distinctUntilChanged()
-        }.collectAsState(context.dataStore[key] ?: defaultValue)
+        }.collectAsState(initial = defaultValue)
 
-    return remember {
+    return remember(key, coroutineScope, state) {
         object : MutableState<T> {
             override var value: T
                 get() = state.value
@@ -91,15 +105,14 @@ inline fun <reified T : Enum<T>> rememberEnumPreference(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    val initialValue = context.dataStore[key].toEnum(defaultValue = defaultValue)
     val state =
-        remember {
+        remember(key, defaultValue) {
             context.dataStore.data
                 .map { it[key].toEnum(defaultValue = defaultValue) }
                 .distinctUntilChanged()
-        }.collectAsState(initialValue)
+        }.collectAsState(initial = defaultValue)
 
-    return remember {
+    return remember(key, coroutineScope, state) {
         object : MutableState<T> {
             override var value: T
                 get() = state.value
