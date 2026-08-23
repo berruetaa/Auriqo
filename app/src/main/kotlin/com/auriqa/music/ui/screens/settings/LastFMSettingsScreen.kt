@@ -211,7 +211,7 @@ fun LastFMSettingsScreen(
                                     .onSuccess { auth ->
                                         lastfmUsername = auth.session.name
                                         lastfmSession = auth.session.key
-                                        LastFM.sessionKey = auth.session.key
+                                        LastFM.setSessionKey(auth.session.key)
 
                                         // Switch back to main thread to update UI
                                         coroutineScope.launch(Dispatchers.Main) {

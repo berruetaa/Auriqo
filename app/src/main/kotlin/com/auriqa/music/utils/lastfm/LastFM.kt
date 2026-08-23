@@ -17,7 +17,8 @@ import kotlinx.serialization.json.Json
 import java.security.MessageDigest
 
 object LastFM {
-    var sessionKey: String? = null
+    @Volatile
+    private var sessionKey: String? = null
 
     private val json = Json {
         isLenient = true
@@ -125,7 +126,7 @@ object LastFM {
                 method = "track.updateNowPlaying",
                 apiKey = API_KEY,
                 secret = SECRET,
-                sessionKey = sessionKey!!,
+                sessionKey = sessionKeyOrThrow(),
                 extra = buildMap {
                     put("artist", artist)
                     put("track", track)
@@ -147,7 +148,7 @@ object LastFM {
                 method = "track.scrobble",
                 apiKey = API_KEY,
                 secret = SECRET,
-                sessionKey = sessionKey!!,
+                sessionKey = sessionKeyOrThrow(),
                 extra = buildMap {
                     put("artist[0]", artist)
                     put("track[0]", track)
@@ -171,7 +172,7 @@ object LastFM {
                 method = method,
                 apiKey = API_KEY,
                 secret = SECRET,
-                sessionKey = sessionKey!!,
+                sessionKey = sessionKeyOrThrow(),
                 extra = buildMap {
                     put("artist", artist)
                     put("track", track)
@@ -181,18 +182,31 @@ object LastFM {
         }
     }
 
-    // API keys passed from the app module (loaded from BuildConfig/GitHub Secrets)
+    private fun sessionKeyOrThrow(): String =
+        sessionKey ?: throw LastFmException(9, "Last.fm session is not available")
+
+    // Public-client credentials passed from the app module. The shared secret is protocol input,
+    // not a confidential server credential once this client is packaged.
     private var API_KEY = ""
     private var SECRET = ""
 
     /**
      * Initialize LastFM with API credentials
      * @param apiKey LastFM API key
-     * @param secret LastFM secret key
+     * @param secret Last.fm shared secret used by the client-side signing protocol
      */
     fun initialize(apiKey: String, secret: String) {
         API_KEY = apiKey
         SECRET = secret
+    }
+
+    /** Updates the user session without exposing a mutable public credential field. */
+    fun setSessionKey(value: String?) {
+        sessionKey = value?.takeIf { it.isNotBlank() }
+    }
+
+    fun clearSession() {
+        sessionKey = null
     }
 
     fun isInitialized(): Boolean = API_KEY.isNotEmpty() && SECRET.isNotEmpty()

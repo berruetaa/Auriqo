@@ -46,6 +46,17 @@ APK:
 Until one of those architectures is intentionally adopted, the direct client implementation should
 keep its current protocol compatibility and describe the residual risk accurately.
 
+## Release and logging review
+
+The source paths were reviewed for this boundary: no Last.fm key, shared secret, `api_sig`, user
+password, or session key is written to Timber/Log output. `LastFM` keeps the user session key behind
+`setSessionKey`/`clearSession`; request failures must not be expanded into credential-bearing logs.
+
+FOSS builds intentionally leave the two `BuildConfig` values empty unless a local developer supplies
+them. Release artifacts must be treated as extractable public clients: scan the APK/AAB for the
+expected client credential scope, do not reuse the shared secret for another integration, and rotate
+the Last.fm application credential if abuse is detected.
+
 ## Distinction from ordinary client secrets
 
 This exception is narrow. It does **not** justify compiling OAuth client secrets, backend API keys,
