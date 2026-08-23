@@ -1913,6 +1913,7 @@ class MusicService :
                     YouTube.feedback(listOf(feedbackToken))
                 }
 
+                YouTube.toggleSongLibrary(it.song.id, !isInLibrary)
                 
                 database.query {
                     update(it.song.toggleLibrary())

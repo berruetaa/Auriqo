@@ -146,19 +146,19 @@ fun YouTubePlaylistMenu(
                 IconButton(
                     onClick = {
                         if (dbPlaylist?.playlist == null) {
+                            val playlistEntity = PlaylistEntity(
+                                name = playlist.title,
+                                browseId = playlist.id,
+                                thumbnailUrl = playlist.thumbnail,
+                                isEditable = playlist.isEditable,
+                                remoteSongCount = playlist.songCountText?.let {
+                                    Regex("""\d+""").find(it)?.value?.toIntOrNull()
+                                },
+                                playEndpointParams = playlist.playEndpoint?.params,
+                                shuffleEndpointParams = playlist.shuffleEndpoint?.params,
+                                radioEndpointParams = playlist.radioEndpoint?.params
+                            ).toggleLike()
                             database.transaction {
-                                val playlistEntity = PlaylistEntity(
-                                    name = playlist.title,
-                                    browseId = playlist.id,
-                                    thumbnailUrl = playlist.thumbnail,
-                                    isEditable = playlist.isEditable,
-                                    remoteSongCount = playlist.songCountText?.let {
-                                        Regex("""\d+""").find(it)?.value?.toIntOrNull()
-                                    },
-                                    playEndpointParams = playlist.playEndpoint?.params,
-                                    shuffleEndpointParams = playlist.shuffleEndpoint?.params,
-                                    radioEndpointParams = playlist.radioEndpoint?.params
-                                ).toggleLike()
                                 insert(playlistEntity)
                                 coroutineScope.launch(Dispatchers.IO) {
                                     songs.ifEmpty {
@@ -177,11 +177,22 @@ fun YouTubePlaylistMenu(
                                         .forEach(::insert)
                                 }
                             }
+                            coroutineScope.launch(Dispatchers.IO) {
+                                playlistEntity.browseId?.let { browseId ->
+                                    YouTube.likePlaylist(browseId, playlistEntity.bookmarkedAt != null)
+                                }
+                            }
                         } else {
+                            val currentPlaylist = dbPlaylist!!.playlist
+                            val updatedPlaylist = currentPlaylist.toggleLike()
                             database.transaction {
-                                val currentPlaylist = dbPlaylist!!.playlist
                                 update(currentPlaylist, playlist)
-                                update(currentPlaylist.toggleLike())
+                                update(updatedPlaylist)
+                            }
+                            coroutineScope.launch(Dispatchers.IO) {
+                                updatedPlaylist.browseId?.let { browseId ->
+                                    YouTube.likePlaylist(browseId, updatedPlaylist.bookmarkedAt != null)
+                                }
                             }
                         }
                     }

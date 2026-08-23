@@ -132,6 +132,7 @@ import com.auriqo.music.utils.listItemShape
 import com.auriqo.music.utils.makeTimeString
 import com.auriqo.music.utils.rememberPreference
 import com.auriqo.music.viewmodels.OnlinePlaylistViewModel
+import com.music.innertube.YouTube
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -758,25 +759,28 @@ private fun OnlinePlaylistHeader(
                     onClick = {
                         coroutineScope.launch(Dispatchers.IO) {
                             if (dbPlaylist != null) {
+                                val updatedPlaylist = dbPlaylist.playlist.toggleLike()
                                 database.withTransaction {
-                                    val currentPlaylist = dbPlaylist.playlist
-                                    update(currentPlaylist, playlist)
-                                    update(currentPlaylist.toggleLike())
+                                    update(dbPlaylist.playlist, playlist)
+                                    update(updatedPlaylist)
+                                }
+                                updatedPlaylist.browseId?.let { browseId ->
+                                    YouTube.likePlaylist(browseId, updatedPlaylist.bookmarkedAt != null)
                                 }
                             } else {
+                                val playlistEntity = PlaylistEntity(
+                                    name = playlist.title,
+                                    browseId = playlist.id,
+                                    thumbnailUrl = playlist.thumbnail,
+                                    isEditable = playlist.isEditable,
+                                    remoteSongCount = playlist.songCountText?.let {
+                                        Regex("""\d+""").find(it)?.value?.toIntOrNull()
+                                    },
+                                    playEndpointParams = playlist.playEndpoint?.params,
+                                    shuffleEndpointParams = playlist.shuffleEndpoint?.params,
+                                    radioEndpointParams = playlist.radioEndpoint?.params
+                                ).toggleLike()
                                 database.withTransaction {
-                                    val playlistEntity = PlaylistEntity(
-                                        name = playlist.title,
-                                        browseId = playlist.id,
-                                        thumbnailUrl = playlist.thumbnail,
-                                        isEditable = playlist.isEditable,
-                                        remoteSongCount = playlist.songCountText?.let {
-                                            Regex("""\d+""").find(it)?.value?.toIntOrNull()
-                                        },
-                                        playEndpointParams = playlist.playEndpoint?.params,
-                                        shuffleEndpointParams = playlist.shuffleEndpoint?.params,
-                                        radioEndpointParams = playlist.radioEndpoint?.params
-                                    ).toggleLike()
                                     insert(playlistEntity)
                                     songs.map { it.toMediaMetadata() }
                                         .onEach { insert(it) }
@@ -789,6 +793,9 @@ private fun OnlinePlaylistHeader(
                                             )
                                         }
                                         .forEach { insert(it) }
+                                }
+                                playlistEntity.browseId?.let { browseId ->
+                                    YouTube.likePlaylist(browseId, playlistEntity.bookmarkedAt != null)
                                 }
                             }
                         }

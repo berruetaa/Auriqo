@@ -390,16 +390,16 @@ fun CommunityPlaylistCard(
                     onClick = {
                         scope.launch(Dispatchers.IO) {
                             if (dbPlaylist?.playlist == null) {
+                                val playlistEntity = PlaylistEntity(
+                                    name = item.playlist.title,
+                                    browseId = item.playlist.id,
+                                    thumbnailUrl = item.playlist.thumbnail,
+                                    remoteSongCount = item.playlist.songCountText?.split(" ")?.firstOrNull()?.toIntOrNull(),
+                                    playEndpointParams = item.playlist.playEndpoint?.params,
+                                    shuffleEndpointParams = item.playlist.shuffleEndpoint?.params,
+                                    radioEndpointParams = item.playlist.radioEndpoint?.params
+                                ).toggleLike()
                                 database.transaction {
-                                    val playlistEntity = PlaylistEntity(
-                                        name = item.playlist.title,
-                                        browseId = item.playlist.id,
-                                        thumbnailUrl = item.playlist.thumbnail,
-                                        remoteSongCount = item.playlist.songCountText?.split(" ")?.firstOrNull()?.toIntOrNull(),
-                                        playEndpointParams = item.playlist.playEndpoint?.params,
-                                        shuffleEndpointParams = item.playlist.shuffleEndpoint?.params,
-                                        radioEndpointParams = item.playlist.radioEndpoint?.params
-                                    ).toggleLike()
                                     insert(playlistEntity)
                                     scope.launch(Dispatchers.IO) {
                                         item.songs.ifEmpty {
@@ -418,10 +418,16 @@ fun CommunityPlaylistCard(
                                             .forEach(::insert)
                                     }
                                 }
+                                playlistEntity.browseId?.let { browseId ->
+                                    YouTube.likePlaylist(browseId, playlistEntity.bookmarkedAt != null)
+                                }
                             } else {
+                                val updatedPlaylist = dbPlaylist!!.playlist.toggleLike()
                                 database.transaction {
-                                    val currentPlaylist = dbPlaylist!!.playlist
-                                    update(currentPlaylist.toggleLike())
+                                    update(updatedPlaylist)
+                                }
+                                updatedPlaylist.browseId?.let { browseId ->
+                                    YouTube.likePlaylist(browseId, updatedPlaylist.bookmarkedAt != null)
                                 }
                             }
                         }
