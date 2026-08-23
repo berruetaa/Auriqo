@@ -207,17 +207,17 @@ object DiscordAssetRegistrar {
                 .build()
 
         val response = client.newCall(request).execute()
-        val responseBody = response.body?.string() ?: return null
+        return response.use { responseBody ->
+            if (!responseBody.isSuccessful) {
+                Timber.tag(TAG).w("external-assets API error: %d", responseBody.code)
+                return@use null
+            }
 
-        if (!response.isSuccessful) {
-            Timber.tag(TAG).w("external-assets API error: %d", response.code)
-            return null
+            val arr = JSONArray(responseBody.body.string())
+            if (arr.length() == 0) return@use null
+            val obj = arr.getJSONObject(0)
+            obj.optString("external_asset_path", null)
         }
-
-        val arr = JSONArray(responseBody)
-        if (arr.length() == 0) return null
-        val obj = arr.getJSONObject(0)
-        return obj.optString("external_asset_path", null)
     }
 
     private suspend fun registerExternalBatch(
@@ -243,16 +243,16 @@ object DiscordAssetRegistrar {
 
             try {
                 val response = client.newCall(request).execute()
-                val responseBody = response.body?.string() ?: return@withContext urls.map { null }
+                return@withContext response.use { responseBody ->
+                    if (!responseBody.isSuccessful) {
+                        Timber.tag(TAG).w("external-assets API error: %d", responseBody.code)
+                        return@use urls.map { null }
+                    }
 
-                if (!response.isSuccessful) {
-                    Timber.tag(TAG).w("external-assets API error: %d", response.code)
-                    return@withContext urls.map { null }
-                }
-
-                val arr = JSONArray(responseBody)
-                return@withContext (0 until arr.length()).map { i ->
-                    arr.getJSONObject(i).optString("external_asset_path", null)
+                    val arr = JSONArray(responseBody.body.string())
+                    (0 until arr.length()).map { i ->
+                        arr.getJSONObject(i).optString("external_asset_path", null)
+                    }
                 }
             } catch (e: Exception) {
                 Timber.tag(TAG).w(e, "external-assets API call failed")
