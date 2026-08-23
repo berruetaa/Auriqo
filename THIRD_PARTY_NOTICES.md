@@ -46,6 +46,19 @@ record are restored and verified.
 - `kugou/src/main/kotlin/com/music/kugou/KuGou.kt` contains an attribution comment identifying an adaptation from [ViMusic](https://github.com/vfsfitvnm/ViMusic). Preserve that notice and verify the file-level license and modifications.
 - Comments and history also refer to Metrolist, VIVI Music, SimpMusic and NewPipe Extractor. A project name alone is not proof that code was copied. File-level mappings and notices are tracked in [docs/PROVENANCE.md](docs/PROVENANCE.md).
 
+### FFmpegKit
+
+- Auriqo uses `dev.ffmpegkit-maintained:ffmpeg-kit-audio:6.0.3` for local MP3 export.
+- The artifact is the community-maintained Android continuation of the retired
+  `com.arthenica:ffmpeg-kit-audio` line. It keeps the `com.arthenica.ffmpegkit` API and is
+  resolved from Maven Central.
+- The maintained prebuilt AAR currently contains `arm64-v8a` and `x86_64` native libraries;
+  it does not contain the legacy `armeabi-v7a` or `x86` libraries shipped by the retired AAR.
+  Do not claim 32-bit FFmpeg export support for builds using this dependency until those ABIs
+  are built and verified separately.
+- License declared by the artifact: LGPL-3.0. Upstream source and notices:
+  [ffmpegkit-maintained/ffmpeg](https://github.com/ffmpegkit-maintained/ffmpeg).
+
 ## Gradle and npm dependencies
 
 The Android build resolves dependencies from Google Maven, Maven Central, JitPack and the additional repositories configured in Gradle. The Worker uses the exact packages and integrity values recorded in `workers/youtube-attribution/package-lock.json`.

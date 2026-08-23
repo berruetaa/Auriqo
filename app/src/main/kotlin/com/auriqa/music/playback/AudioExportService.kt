@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Uri
+import android.os.Build
 import android.os.IBinder
 import androidx.core.content.getSystemService
 import androidx.documentfile.provider.DocumentFile
@@ -60,6 +61,12 @@ class AudioExportService : Service() {
         artworkUrl: String,
         targetDirectoryUri: String,
     ) {
+        if (!isFfmpegAbiSupported(Build.SUPPORTED_ABIS.asList())) {
+            Timber.e("Audio export is unavailable for the device ABI")
+            stopSelf()
+            return
+        }
+
         val safeTitle = sanitizeTitle(songTitle.ifBlank { songId })
         addExportingSongId(songId)
 
@@ -242,6 +249,8 @@ class AudioExportService : Service() {
     }
 
     companion object {
+        private val supportedFfmpegAbis = setOf("arm64-v8a", "x86_64")
+
         private const val EXTRA_SONG_ID = "extra_song_id"
         private const val EXTRA_SONG_TITLE = "extra_song_title"
         private const val EXTRA_SONG_ARTIST = "extra_song_artist"
@@ -268,6 +277,10 @@ class AudioExportService : Service() {
             }
             context.startService(intent)
         }
+
+        /** Returns whether the packaged FFmpegKit AAR contains a native library for an ABI. */
+        fun isFfmpegAbiSupported(abis: Iterable<String>): Boolean =
+            abis.any(supportedFfmpegAbis::contains)
 
         private fun sanitizeTitle(title: String): String =
             title
