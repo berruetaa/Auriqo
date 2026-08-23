@@ -1,5 +1,3 @@
-
-
 package com.auriqo.music.lyrics
 
 import android.content.Context
@@ -14,13 +12,12 @@ object PaxSenixLyricsProvider : LyricsProvider {
 
     override val name = "Paxsenix"
 
-    override fun isEnabled(context: Context): Boolean {
-        
-        val enabled = context.dataStore[EnablePaxsenixKey] ?: true
-        if (enabled) {
-            Paxsenix.init(context)
-        }
-        return enabled
+    @Suppress("DEPRECATION")
+    override fun isEnabled(context: Context): Boolean =
+        context.dataStore[EnablePaxsenixKey] ?: true
+
+    override fun prepare(context: Context) {
+        Paxsenix.init(context)
     }
 
     override suspend fun getLyrics(
