@@ -63,6 +63,9 @@ jobs:
           ./gradlew \
             :app:compileUniversalFossDebugKotlin \
             :app:testUniversalFossDebugUnitTest \
+            :betterlyrics:testDebugUnitTest \
+            :unison:test \
+            :wear:testDebugUnitTest \
             :innertube:testDebugUnitTest \
             :letras:test \
             :canvas:test \
