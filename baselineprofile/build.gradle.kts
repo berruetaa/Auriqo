@@ -11,6 +11,11 @@ android {
         minSdk = 28
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // The producer has no own ABI/variant dimensions. Keep the default profile generation
+        // deterministic and target the same FOSS universal artifact used by local validation.
+        missingDimensionStrategy("abi", "universal")
+        missingDimensionStrategy("variant", "foss")
     }
 
     targetProjectPath = ":app"
