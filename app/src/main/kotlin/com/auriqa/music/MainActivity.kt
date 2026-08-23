@@ -1463,6 +1463,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (uri == null) return
+        if (!com.auriqo.music.security.DeepLinkPolicy.isSupported(uri.toString())) return
 
         intent.data = null
         intent.removeExtra(Intent.EXTRA_TEXT)
