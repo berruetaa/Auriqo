@@ -51,6 +51,7 @@ class GatewayClient {
     val latency: Int get() = ping
 
     suspend fun connect(accessToken: String) {
+        check(scope.isActive) { "GatewayClient cannot reconnect after disconnect" }
         if (wsSession != null) throw IllegalStateException("GatewayClient already connected")
 
         token = accessToken
@@ -159,16 +160,23 @@ class GatewayClient {
     fun sendPresenceUpdate(presenceJson: JSONObject): Boolean = send(GatewayOp.PRESENCE_UPDATE, presenceJson)
 
     fun disconnect() {
+        if (closed && wsSession == null && httpClient == null) return
+
         closed = true
         stopHeartbeat()
         helloTimerJob?.cancel()
         processingJob?.cancel()
-        scope.launch {
-            wsSession?.close(1000, "Client disconnect")
-            wsSession = null
-            httpClient?.dispatcher?.executorService?.shutdown()
-            httpClient = null
-        }
+        helloTimerJob = null
+        processingJob = null
+
+        wsSession?.close(1000, "Client disconnect")
+        wsSession = null
+        httpClient?.dispatcher?.executorService?.shutdown()
+        httpClient = null
+
+        // WebSocket callbacks may arrive after close; cancelling this scope makes
+        // their channel forwarding a no-op and releases the gateway's jobs.
+        scope.cancel()
     }
 
     private fun send(
