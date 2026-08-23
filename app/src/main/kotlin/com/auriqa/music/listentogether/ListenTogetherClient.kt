@@ -222,7 +222,7 @@ class ListenTogetherClient @Inject constructor(
             }
         }
         
-        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        scope.launch {
             loadPersistedSession()
             observeNetworkChanges()
         }
