@@ -21,7 +21,6 @@ import com.auriqo.music.extensions.metadata
 import com.auriqo.music.extensions.togglePlayPause
 import com.auriqo.music.playback.MusicService.MusicBinder
 import com.auriqo.music.playback.queues.Queue
-import com.auriqo.music.utils.reportException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -427,7 +426,9 @@ class PlayerConnection(
 
     override fun onPlaybackStateChanged(state: Int) {
         playbackState.value = state
-        error.value = player.playerError
+        // The raw Media3 error is intentionally not promoted to UI state. MusicService publishes
+        // a structured terminal failure only after its bounded recovery policy is exhausted.
+        error.value = null
     }
 
     override fun onPlayWhenReadyChanged(
@@ -471,10 +472,7 @@ class PlayerConnection(
     }
 
     override fun onPlayerErrorChanged(playbackError: PlaybackException?) {
-        if (playbackError != null) {
-            reportException(playbackError)
-        }
-        error.value = playbackError
+        error.value = null
     }
 
     private fun updateCanSkipPreviousAndNext() {

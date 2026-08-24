@@ -137,16 +137,35 @@ object YTPlayerUtils {
         knownArtist: String? = null,
         knownTitle: String? = null,
         knownDurationMs: Long? = null,
-        isDownload: Boolean = false
+        isDownload: Boolean = false,
+        excludedItags: Set<Int> = emptySet(),
     ): Result<PlaybackData> {
         val trace = PlaybackDiagnostics.currentFor(videoId)
         trace?.playerResponseStart()
-        val firstAttempt = resolvePlaybackData(videoId, playlistId, audioQuality, connectivityManager, context, knownArtist, knownTitle)
+        val firstAttempt = resolvePlaybackData(
+            videoId,
+            playlistId,
+            audioQuality,
+            connectivityManager,
+            context,
+            knownArtist,
+            knownTitle,
+            excludedItags,
+        )
         val result = if (firstAttempt.isFailure && YouTube.cookie == null) {
             Timber.tag(TAG).w("Playback failed for guest. Rotating session and retrying...")
             PlaybackLogManager.log(PlaybackLogLevel.BOT, "Playback failed for guest", "Triggering bot detection mitigation (rotating guest session)")
             BotDetectionMitigator.rotateGuestSession()
-            val retryResult = resolvePlaybackData(videoId, playlistId, audioQuality, connectivityManager, context, knownArtist, knownTitle)
+            val retryResult = resolvePlaybackData(
+                videoId,
+                playlistId,
+                audioQuality,
+                connectivityManager,
+                context,
+                knownArtist,
+                knownTitle,
+                excludedItags,
+            )
             retryResult.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
             retryResult
         } else {
@@ -168,7 +187,8 @@ object YTPlayerUtils {
         connectivityManager: ConnectivityManager,
         context: android.content.Context? = null,
         knownArtist: String? = null,
-        knownTitle: String? = null
+        knownTitle: String? = null,
+        excludedItags: Set<Int> = emptySet(),
     ): Result<PlaybackData> = runCatching {
         Timber.tag(logTag).d("Fetching player response for videoId: $videoId, playlistId: $playlistId")
         PlaybackLogManager.log(PlaybackLogLevel.INFO, "Resolving playback data", "Video: $videoId")
@@ -196,7 +216,7 @@ object YTPlayerUtils {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.tag(logTag).e(e, "PoToken generation failed: ${e.message}")
+                Timber.tag(logTag).e("PoToken generation failed type=${e::class.java.simpleName}")
             }
         }
 
@@ -221,7 +241,7 @@ object YTPlayerUtils {
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        Timber.tag(logTag).e(e, "Metadata PoToken generation failed")
+                        Timber.tag(logTag).e("Metadata PoToken generation failed type=${e::class.java.simpleName}")
                     }
                 }
                 metadataResponse = YouTube.player(
@@ -232,7 +252,7 @@ object YTPlayerUtils {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.tag(logTag).e(e, "Failed to fetch metadata from METADATA_CLIENT")
+                Timber.tag(logTag).e("Failed to fetch metadata from METADATA_CLIENT type=${e::class.java.simpleName}")
             }
         }
 
@@ -261,7 +281,7 @@ object YTPlayerUtils {
                 .onFailure {
                     // Distinguish thrown request/parse failures from genuine playability
                     // rejections (both otherwise surface as a null response downstream).
-                    Timber.tag(logTag).e(it, "player() request FAILED for WEB_CREATOR")
+                    Timber.tag(logTag).e("player() request FAILED for WEB_CREATOR type=${it::class.java.simpleName}")
                 }.getOrNull()
             if (creatorResponse?.playabilityStatus?.status == "OK") {
                 Timber.tag(logTag).d("WEB_CREATOR works for age-restricted content")
@@ -349,7 +369,7 @@ object YTPlayerUtils {
                         throw e
                     } catch (e: Exception) {
                         PlaybackDiagnostics.currentFor(videoId)?.breadcrumb("POTOKEN_FAILED", e::class.simpleName)
-                        Timber.tag(logTag).e(e, "Lazy PoToken generation failed")
+                        Timber.tag(logTag).e("Lazy PoToken generation failed type=${e::class.java.simpleName}")
                     }
                 }
 
@@ -361,7 +381,7 @@ object YTPlayerUtils {
                 streamPlayerResponse =
                     YouTube.player(videoId, playlistId, client, clientSigTimestamp, clientPoToken)
                         .onFailure {
-                            Timber.tag(logTag).e(it, "player() request FAILED for %s", client.clientName)
+                            Timber.tag(logTag).e("player() request FAILED for ${client.clientName} type=${it::class.java.simpleName}")
                         }.getOrNull()
             }
 
@@ -386,6 +406,7 @@ object YTPlayerUtils {
                         responseToUse,
                         audioQuality,
                         connectivityManager,
+                        excludedItags,
                     )
 
                 if (format == null) {
@@ -437,7 +458,7 @@ object YTPlayerUtils {
                     } catch (e: Exception) {
                         trace?.cipherEnd("n_transform", success = false)
                         trace?.breadcrumb("N_TRANSFORM_FAILED", e::class.simpleName)
-                        Timber.tag(logTag).e(e, "N-transform failed: ${e.message}")
+                        Timber.tag(logTag).e("N-transform failed type=${e::class.java.simpleName}")
                     }
                 }
 
@@ -476,6 +497,17 @@ object YTPlayerUtils {
                     break
                 }
 
+                if (clientIndex == -1) {
+                    // The normal path should pay for one request: Media3's real GET is the
+                    // authoritative stream check. A speculative HEAD here duplicated DNS/TLS
+                    // and delayed cold start; rejected URLs are classified and recovered by the
+                    // player boundary below. Fallback clients still use validation to choose a
+                    // viable candidate before spending another resolution attempt.
+                    PlaybackDiagnostics.currentFor(videoId)?.breadcrumb("STREAM_VALIDATION_SKIPPED", "main_client")
+                    Log.i(TAG, "Playback: client=${currentClient.clientName}, videoId=$videoId (validation deferred to Media3)")
+                    break
+                }
+
                 if (validateStatus(streamUrl!!)) {
                     
                     Timber.tag(logTag).d("Stream validated successfully with client: ${currentClient.clientName}")
@@ -508,7 +540,7 @@ object YTPlayerUtils {
                             throw e
                         } catch (e: Exception) {
                             PlaybackDiagnostics.currentFor(videoId)?.breadcrumb("N_TRANSFORM_FAILED", e::class.simpleName)
-                            Timber.tag(logTag).e(e, "CipherDeobfuscator n-transform error")
+                            Timber.tag(logTag).e("CipherDeobfuscator n-transform error type=${e::class.java.simpleName}")
                         }
 
                         if (nTransformWorked) break
@@ -582,8 +614,12 @@ object YTPlayerUtils {
         )
     }.onFailure { e ->
         if (e is kotlinx.coroutines.CancellationException) throw e
-        Timber.tag(logTag).e(e, "Playback resolution failed")
-        PlaybackLogManager.log(PlaybackLogLevel.ERROR, "Playback failed", "${e::class.simpleName}: ${e.message}")
+        Timber.tag(logTag).e("Playback resolution failed type=${e::class.java.simpleName}")
+        PlaybackLogManager.log(
+            PlaybackLogLevel.ERROR,
+            "Playback failed",
+            "${e::class.simpleName}: ${PlaybackRedactor.sanitizeText(e.message.orEmpty())}",
+        )
     }
     
     suspend fun playerResponseForMetadata(
@@ -593,18 +629,20 @@ object YTPlayerUtils {
         Timber.tag(logTag).d("Fetching metadata-only player response for videoId: $videoId using MAIN_CLIENT: ${MAIN_CLIENT.clientName}")
         return YouTube.player(videoId, playlistId, client = WEB_REMIX) 
             .onSuccess { Timber.tag(logTag).d("Successfully fetched metadata") }
-            .onFailure { Timber.tag(logTag).e(it, "Failed to fetch metadata") }
+            .onFailure { Timber.tag(logTag).e("Failed to fetch metadata type=${it::class.java.simpleName}") }
     }
 
     private fun findFormat(
         playerResponse: PlayerResponse,
         audioQuality: AudioQuality,
         connectivityManager: ConnectivityManager,
+        excludedItags: Set<Int> = emptySet(),
     ): PlayerResponse.StreamingData.Format? {
         Timber.tag(logTag).d("Finding format with audioQuality: $audioQuality, network metered: ${connectivityManager.isActiveNetworkMetered}")
 
         val format = playerResponse.streamingData?.adaptiveFormats
             ?.filter { it.isAudio && it.isOriginal }
+            ?.filterNot { it.itag in excludedItags }
             ?.maxByOrNull {
                 it.bitrate * when (audioQuality) {
                     AudioQuality.OPUS -> 1
@@ -643,7 +681,6 @@ object YTPlayerUtils {
                 "Stream URL validation failed type=${e::class.java.simpleName} " +
                     "message=${PlaybackRedactor.sanitizeText(e.message.orEmpty())}",
             )
-            reportException(e)
         }
         return false
     }
@@ -689,8 +726,7 @@ object YTPlayerUtils {
                     Timber.tag(logTag).d("Age-restricted content detected from NewPipe")
                     Log.i(TAG, "Age-restricted detected early via NewPipe: videoId=$videoId")
                 } else {
-                    Timber.tag(logTag).e(error, "Failed to get signature timestamp")
-                    reportException(error)
+                    Timber.tag(logTag).e("Failed to get signature timestamp type=${error::class.java.simpleName}")
                 }
                 SignatureTimestampResult(null, isAgeRestricted)
             }

@@ -344,4 +344,45 @@ class StreamRecoveryCoordinatorTest {
         assertTrue(coordinator.playbackGeneration() > first)
         assertTrue(coordinator.playbackGeneration() > initial)
     }
+
+    @Test
+    fun rapidPlaybackSelectionDiscardsLateAAndBResolutions() {
+        val aKey = StreamRecoveryCoordinator.StreamKey("A", "OPUS")
+        val bKey = StreamRecoveryCoordinator.StreamKey("B", "OPUS")
+        val cKey = StreamRecoveryCoordinator.StreamKey("C", "OPUS")
+
+        coordinator.beginPlayback("A", force = true)
+        val aToken = coordinator.resolutionToken("A")
+        coordinator.beginPlayback("B", force = true)
+        val bToken = coordinator.resolutionToken("B")
+        coordinator.beginPlayback("C", force = true)
+        val cToken = coordinator.resolutionToken("C")
+
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Superseded,
+            coordinator.cacheStream(aKey, "https://cdn.example/A", nowMs + 60_000L, aToken),
+        )
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Superseded,
+            coordinator.cacheStream(bKey, "https://cdn.example/B", nowMs + 60_000L, bToken),
+        )
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Stored,
+            coordinator.cacheStream(cKey, "https://cdn.example/C", nowMs + 60_000L, cToken),
+        )
+        assertEquals("https://cdn.example/C", coordinator.cachedStream(cKey)?.url)
+    }
+
+    @Test
+    fun changingMediaCancelsAnInProgressRecoveryToken() {
+        coordinator.beginPlayback("A", force = true)
+        val decision = coordinator.onFailure(
+            StreamRecoveryCoordinator.PlaybackSnapshot("A", 0, 0L, true),
+            StreamRecoveryCoordinator.FailureKind.RateLimited,
+        ) as StreamRecoveryCoordinator.RecoveryDecision.Recover
+
+        coordinator.beginPlayback("B", force = true)
+
+        assertTrue(!coordinator.isCurrentRecovery(decision.token))
+    }
 }

@@ -122,6 +122,8 @@ fun PlaybackError(
                     append("category=${failure.category}\n")
                     append("Media3=${failure.media3CodeName ?: "unknown"} (${failure.media3Code ?: "unknown"})\n")
                     append("HTTP=${failure.httpStatus ?: "unknown"}\n")
+                    append("HTTP host=${failure.http?.host ?: "unknown"}\n")
+                    append("HTTP message=${failure.http?.responseMessage ?: "unknown"}\n")
                     append("playability=${PlaybackRedactor.sanitizeScalar(failure.playabilityStatus)}\n")
                     append("attempt=${failure.attempt}/${failure.maxAttempts}\n")
                     append(failure.technicalMessage)

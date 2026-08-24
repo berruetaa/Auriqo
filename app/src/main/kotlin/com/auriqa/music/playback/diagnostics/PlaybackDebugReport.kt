@@ -50,7 +50,7 @@ object PlaybackDebugReportFormatter {
         appendLine("resolutionMs=${resolutionDuration(events) ?: "unknown"}")
         appendLine("datasourceOpenMs=${events.filterIsInstance<PlaybackDiagnosticEvent.DataSourceOpenEnd>().lastOrNull()?.durationMs ?: "unknown"}")
         appendLine("firstFailureMs=${events.filterIsInstance<PlaybackDiagnosticEvent.HttpStatus>().firstOrNull()?.elapsedMs ?: failure.elapsedMs}")
-        appendLine("recoveryMs=${events.filterIsInstance<PlaybackDiagnosticEvent.RecoveryEnd>().lastOrNull()?.elapsedMs ?: "unknown"}")
+        appendLine("recoveryMs=${events.filterIsInstance<PlaybackDiagnosticEvent.RecoveryEnd>().lastOrNull()?.durationMs ?: "unknown"}")
         appendLine("totalMs=${failure.elapsedMs}")
         appendLine()
         appendLine("Failure:")
@@ -59,6 +59,12 @@ object PlaybackDebugReportFormatter {
         appendLine("auriQoCode=${failure.stableCode}")
         appendLine("media3Code=${failure.media3CodeName ?: "unknown"} (${failure.media3Code ?: "unknown"})")
         appendLine("httpStatus=${failure.httpStatus ?: "unknown"}")
+        appendLine("httpMessage=${PlaybackRedactor.sanitizeScalar(failure.http?.responseMessage)}")
+        appendLine("httpHost=${PlaybackRedactor.sanitizeScalar(failure.http?.host)}")
+        appendLine("httpContentType=${PlaybackRedactor.sanitizeScalar(failure.http?.contentType)}")
+        appendLine("httpRange=${PlaybackRedactor.sanitizeScalar(failure.http?.range)}")
+        appendLine("httpQueryKeys=${failure.http?.queryKeys ?: "unknown"}")
+        appendLine("httpExpireEpoch=${failure.http?.expireEpoch ?: "unknown"}")
         appendLine("playabilityStatus=${PlaybackRedactor.sanitizeScalar(failure.playabilityStatus)}")
         appendLine("terminal=${failure.terminal}")
         appendLine()
@@ -85,6 +91,9 @@ object PlaybackDebugReportFormatter {
                     "${"  ".repeat(index)}↳ ${PlaybackRedactor.sanitizeScalar(cause.className)}: " +
                         PlaybackRedactor.sanitizeScalar(cause.message),
                 )
+                cause.relevantFields.forEach { (name, value) ->
+                    appendLine("${"  ".repeat(index + 1)}$name=${PlaybackRedactor.sanitizeScalar(value)}")
+                }
             }
         }
         appendLine()

@@ -59,11 +59,9 @@ class ChunkingDataSource(
             return C.RESULT_END_OF_INPUT
         }
 
-        val bytes = try {
-            upstream.read(buffer, offset, readLength)
-        } catch (e: Exception) {
-            -1
-        }
+        // EOF is a protocol result, not an exception. Preserve every upstream failure so the
+        // DownloadManager/Media3 boundary can retain its original type and cause chain.
+        val bytes = upstream.read(buffer, offset, readLength)
         
         if (bytes == C.RESULT_END_OF_INPUT || bytes == -1) {
             upstream.close()
@@ -80,16 +78,12 @@ class ChunkingDataSource(
                 }
                 throw e
             }
-            return try {
-                val newBytes = upstream.read(buffer, offset, readLength)
-                if (newBytes == C.RESULT_END_OF_INPUT || newBytes == -1) {
-                    C.RESULT_END_OF_INPUT
-                } else {
-                    bytesReadTotal += newBytes
-                    newBytes
-                }
-            } catch (e: Exception) {
+            val newBytes = upstream.read(buffer, offset, readLength)
+            return if (newBytes == C.RESULT_END_OF_INPUT || newBytes == -1) {
                 C.RESULT_END_OF_INPUT
+            } else {
+                bytesReadTotal += newBytes
+                newBytes
             }
         }
         bytesReadTotal += bytes

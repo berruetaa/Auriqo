@@ -53,6 +53,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import java.time.LocalDateTime
 import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -69,7 +70,12 @@ constructor(
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
     private val downloadQuality = MutableStateFlow(com.auriqo.music.constants.DownloadQuality.YOUTUBE)
     private val ipVersion = MutableStateFlow(IpVersion.AUTO)
-    private val songUrlCache = HashMap<String, Pair<String, Long>>()
+    private data class CachedDownloadUrl(
+        val url: String,
+        val expiresAtMs: Long,
+    )
+
+    private val songUrlCache = ConcurrentHashMap<String, CachedDownloadUrl>()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -177,10 +183,15 @@ constructor(
         ) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
 
-            songUrlCache["${mediaId}_${downloadQuality.value.name}"]?.takeIf { it.second > System.currentTimeMillis() }?.let {
-                return@Factory dataSpec.withUri(it.first.toUri())
+            songUrlCache["${mediaId}_${downloadQuality.value.name}"]
+                ?.takeIf { it.expiresAtMs > System.currentTimeMillis() + DOWNLOAD_URL_SAFETY_MARGIN_MS }
+                ?.let {
+                return@Factory dataSpec.withUri(it.url.toUri())
             }
 
+            // DownloadManager's ResolvingDataSource API is synchronous. This is isolated to
+            // offline download creation; normal playback resolves ahead of Media3 on the service
+            // path and never reaches this adapter.
             val playbackData = runBlocking(Dispatchers.IO) {
                 YTPlayerUtils.playerResponseForPlayback(
                     mediaId,
@@ -194,7 +205,10 @@ constructor(
 
             val streamUrl = playbackData.streamUrl
 
-            songUrlCache["${mediaId}_${downloadQuality.value.name}"] = streamUrl to playbackData.streamExpiresInSeconds * 1000L
+            songUrlCache["${mediaId}_${downloadQuality.value.name}"] = CachedDownloadUrl(
+                url = streamUrl,
+                expiresAtMs = System.currentTimeMillis() + playbackData.streamExpiresInSeconds * 1000L,
+            )
             dataSpec.withUri(streamUrl.toUri())
         }
 
@@ -257,5 +271,9 @@ constructor(
 
     fun release() {
         scope.cancel()
+    }
+
+    private companion object {
+        const val DOWNLOAD_URL_SAFETY_MARGIN_MS = 15_000L
     }
 }

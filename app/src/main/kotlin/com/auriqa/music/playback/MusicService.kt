@@ -20,6 +20,7 @@ import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.LoudnessEnhancer
 import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Binder
 import android.os.Build
 import androidx.core.app.NotificationCompat
@@ -42,6 +43,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
@@ -165,6 +167,7 @@ import com.auriqo.music.playback.diagnostics.PlaybackDiagnostics
 import com.auriqo.music.playback.diagnostics.PlaybackFailure
 import com.auriqo.music.playback.diagnostics.PlaybackFailureClassifier
 import com.auriqo.music.playback.diagnostics.PlaybackFailureStage
+import com.auriqo.music.playback.diagnostics.PlaybackRedactor
 import com.auriqo.music.playback.diagnostics.PlaybackResolutionException
 import com.auriqo.music.playback.diagnostics.PlaybackTraceRecorder
 import com.auriqo.music.playback.diagnostics.PlaybackTracingDataSource
@@ -369,6 +372,8 @@ class MusicService :
     lateinit var connectivityObserver: NetworkConnectivityObserver
     val waitingForNetworkConnection = MutableStateFlow(false)
     private val isNetworkConnected = MutableStateFlow(false)
+    private var lastNetworkConnected: Boolean? = null
+    private var streamNetworkGeneration = 0L
 
     private lateinit var audioQuality: com.auriqo.music.constants.AudioQuality
     private lateinit var ipVersion: IpVersion
@@ -554,6 +559,8 @@ class MusicService :
 
     
     private val bypassCacheForQualityChange = mutableSetOf<String>()
+    private val selectedFormatItags = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val excludedFormatItags = java.util.concurrent.ConcurrentHashMap<String, MutableSet<Int>>()
 
     
     private var currentMediaIdRetryCount = mutableMapOf<String, Int>()
@@ -793,12 +800,20 @@ class MusicService :
 
         scope.launch {
             connectivityObserver.networkStatus.collect { isConnected ->
+                if (lastNetworkConnected != null && lastNetworkConnected != isConnected) {
+                    streamNetworkGeneration++
+                    preloadJob?.cancel()
+                }
+                lastNetworkConnected = isConnected
                 isNetworkConnected.value = isConnected
                 PlaybackDiagnostics.current()?.networkChanged(
                     connected = isConnected,
-                    networkType = if (isConnected) "connected" else "offline",
+                    networkType = playbackNetworkType(),
                 )
                 if (isConnected && waitingForNetworkConnection.value) {
+                    // A stream URL can be bound to the previous route/IP. Keep downloaded and
+                    // byte-cache data intact, but force remote URL resolution for this network.
+                    streamRecovery.retainOnly(null)
                     triggerRetry()
                 }
                 
@@ -1185,7 +1200,11 @@ class MusicService :
             .setRenderersFactory(createRenderersFactory(eqProcessor, silenceProcessor, duckProcessor))
             .setLoadControl(
                 DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(50_000, 50_000, 750, 2_000)
+                    // The next track is resolved/warmed ahead of time, so startup can wait for
+                    // a small amount of audio instead of the previous 750 ms gate. Rebuffering
+                    // remains conservative to avoid trading instant start for audible stalls.
+                    .setBufferDurationsMs(30_000, 50_000, 250, 1_000)
+                    .setPrioritizeTimeOverSizeThresholds(true)
                     .build()
             )
             .setHandleAudioBecomingNoisy(true)
@@ -1252,8 +1271,11 @@ class MusicService :
         waitingForNetworkConnection.value = false
         _terminalPlaybackFailure.value = null
         lastPlaybackFailure = null
+        excludedFormatItags.clear()
+        selectedFormatItags.clear()
         val trace = PlaybackDiagnostics.start(mediaId, "manual_retry")
         trace.breadcrumb("USER_RETRY")
+        excludedFormatItags.remove(mediaId)
         if (!mediaId.isLocalMediaId()) {
             streamRecovery.invalidateStream(mediaId)
         }
@@ -1294,32 +1316,74 @@ class MusicService :
 
         
         if (retryCount >= MAX_RETRY_COUNT) {
-            Timber.tag(TAG).w("Max retry count ($MAX_RETRY_COUNT) reached, stopping playback")
-            stopOnError()
-            retryCount = 0
+            finishNetworkRecoveryBudget()
             return
         }
 
         waitingForNetworkConnection.value = true
+        PlaybackDiagnostics.current()?.recoveryStart(
+            attempt = retryCount + 1,
+            maxAttempts = MAX_RETRY_COUNT,
+            reason = "NETWORK_OFFLINE",
+        )
 
         
         retryJob?.cancel()
         retryJob = scope.launch {
-            
-            val delayMs = minOf(3000L * (1 shl retryCount), 30000L)
-            Timber.tag(TAG).d("Waiting ${delayMs}ms before retry attempt ${retryCount + 1}/$MAX_RETRY_COUNT")
-            delay(delayMs)
+            while (isActive && waitingForNetworkConnection.value) {
+                val delayMs = minOf(3000L * (1 shl retryCount.coerceAtMost(4)), 30000L)
+                Timber.tag(TAG).d("Waiting ${delayMs}ms before retry attempt ${retryCount + 1}/$MAX_RETRY_COUNT")
+                delay(delayMs)
 
-            if (isNetworkConnected.value && waitingForNetworkConnection.value) {
                 retryCount++
-                triggerRetry()
+                if (isNetworkConnected.value) {
+                    triggerRetry()
+                    return@launch
+                }
+                if (retryCount >= MAX_RETRY_COUNT) {
+                    finishNetworkRecoveryBudget()
+                    return@launch
+                }
             }
         }
     }
 
+    private fun finishNetworkRecoveryBudget() {
+        Timber.tag(TAG).w("Max retry count ($MAX_RETRY_COUNT) reached, stopping playback")
+        waitingForNetworkConnection.value = false
+        PlaybackDiagnostics.current()?.recoveryEnd(
+            attempt = retryCount,
+            success = false,
+            result = "network_retry_budget_exhausted",
+        )
+        handleFinalFailure(
+            lastPlaybackFailure?.copy(
+                terminal = true,
+                attempt = retryCount,
+                maxAttempts = MAX_RETRY_COUNT,
+                recoveryActions = listOf(
+                    com.auriqo.music.playback.diagnostics.PlaybackRecoveryAction(
+                        action = "wait_for_network",
+                        result = "budget_exhausted",
+                        attempt = retryCount,
+                    ),
+                ),
+            ),
+        )
+        retryCount = 0
+    }
+
     private fun triggerRetry() {
+        val wasWaiting = waitingForNetworkConnection.value
         waitingForNetworkConnection.value = false
         retryJob?.cancel()
+        if (wasWaiting) {
+            PlaybackDiagnostics.current()?.recoveryEnd(
+                attempt = retryCount.coerceAtLeast(1),
+                success = true,
+                result = "network_reconnected",
+            )
+        }
 
         if (player.currentMediaItem != null) {
             
@@ -2091,6 +2155,7 @@ class MusicService :
         )
         if (startsNewPlaybackGeneration) {
             trace.recordMediaItemCreated(mediaItem?.mediaId, player.currentMediaItemIndex)
+            mediaItem?.mediaId?.let(excludedFormatItags::remove)
         }
         streamRecovery.beginPlayback(
             mediaItem?.mediaId,
@@ -2257,7 +2322,7 @@ class MusicService :
         ) {
             prepareAutomixForCurrentPair()
             scheduleCrossfade()
-            val isBufferingOrReady =
+        val isBufferingOrReady =
                 player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_READY
             if (isBufferingOrReady && player.playWhenReady) {
                 val focusGranted = audioFocusController.request()
@@ -2275,6 +2340,7 @@ class MusicService :
             playbackMetadataSnapshot = player.mediaItems
                 .mapNotNull { item -> item.metadata?.let { item.mediaId to it } }
                 .toMap()
+            preloadUpcomingItems()
         }
 
         
@@ -2480,6 +2546,27 @@ class MusicService :
         return null
     }
 
+    private fun streamKey(
+        mediaId: String,
+        quality: com.auriqo.music.constants.AudioQuality,
+    ): StreamRecoveryCoordinator.StreamKey = StreamRecoveryCoordinator.StreamKey(
+        mediaId = mediaId,
+        quality = quality.name,
+        networkGeneration = streamNetworkGeneration,
+    )
+
+    private fun playbackNetworkType(): String {
+        val network = connectivityManager.activeNetwork ?: return "offline"
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return "unknown"
+        return when {
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> "bluetooth"
+            else -> "other"
+        }
+    }
+
     private fun traceForPlaybackError(mediaId: String?): PlaybackTraceRecorder {
         return PlaybackDiagnostics.currentFor(mediaId)
             ?: PlaybackDiagnostics.start(mediaId, "player_error").also {
@@ -2506,7 +2593,7 @@ class MusicService :
                 maxAttempts = maxAttempts,
                 streamGeneration = streamRecovery.playbackGeneration(),
                 cacheStatus = if (mediaId?.isLocalMediaId() == true) "local" else "remote",
-                networkType = if (isNetworkConnected.value) "connected" else "offline",
+                networkType = playbackNetworkType(),
                 terminalOverride = terminalOverride,
             ),
         )
@@ -2515,7 +2602,8 @@ class MusicService :
     private fun isRejectedStreamFailure(error: PlaybackException): Boolean =
         error.errorCode == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE ||
             when (getHttpResponseCode(error)) {
-                403, 410, 416 -> true
+                403, 404, 410, 416, 429 -> true
+                in 500..599 -> true
                 else -> false
             }
 
@@ -2552,7 +2640,9 @@ class MusicService :
         while (cause != null) {
             if (cause is java.net.ConnectException ||
                 cause is java.net.UnknownHostException ||
-                cause is java.net.SocketTimeoutException
+                cause is java.net.SocketTimeoutException ||
+                cause is java.net.SocketException ||
+                cause is java.io.InterruptedIOException
             ) {
                 return true
             }
@@ -2580,10 +2670,55 @@ class MusicService :
                 error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED
     }
 
-    private fun streamFailureKind(error: PlaybackException): StreamRecoveryCoordinator.FailureKind {
+    private fun streamFailureKind(
+        error: PlaybackException,
+        mediaId: String? = null,
+    ): StreamRecoveryCoordinator.FailureKind {
+        val hint = Media3PlaybackDiagnostics.hintFor(error)
+        if (mediaId != null && !mediaId.isLocalMediaId() &&
+            selectedFormatItags.containsKey(mediaId) &&
+            hint in setOf(
+                com.auriqo.music.playback.diagnostics.PlaybackFailureHint.DECODER_INIT_FAILED,
+                com.auriqo.music.playback.diagnostics.PlaybackFailureHint.DECODING_FAILED,
+            )
+        ) {
+            return StreamRecoveryCoordinator.FailureKind.AlternateFormat
+        }
+
+        when (hint) {
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.TIMEOUT,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.CONNECTION_FAILED,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.OFFLINE ->
+                return StreamRecoveryCoordinator.FailureKind.Permanent
+
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.CACHE_CORRUPTED,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.CACHE_POSITION_OUT_OF_RANGE,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.CONTAINER_MALFORMED,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.CONTAINER_UNSUPPORTED ->
+                return StreamRecoveryCoordinator.FailureKind.CacheOrStreamCorruption
+
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.PLAYER_RESPONSE_FAILED,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.PLAYER_JS_NOT_FOUND,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.SIGNATURE_FUNCTION_NOT_FOUND,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.SIGNATURE_DECIPHER_FAILED,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.N_TRANSFORM_NOT_FOUND,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.N_TRANSFORM_FAILED,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.POTOKEN_FAILED,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.STREAM_URL_EXPIRED,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.FORMAT_NOT_FOUND,
+            com.auriqo.music.playback.diagnostics.PlaybackFailureHint.CONTENT_TYPE_INVALID ->
+                return StreamRecoveryCoordinator.FailureKind.ReloadRequired
+
+            else -> Unit
+        }
+
         return when {
             isRejectedStreamFailure(error) ->
-                StreamRecoveryCoordinator.FailureKind.RejectedStream
+                if (getHttpResponseCode(error) == 429) {
+                    StreamRecoveryCoordinator.FailureKind.RateLimited
+                } else {
+                    StreamRecoveryCoordinator.FailureKind.RejectedStream
+                }
             isPageReloadError(error) -> StreamRecoveryCoordinator.FailureKind.ReloadRequired
             hasNetworkTransportFailure(error) -> StreamRecoveryCoordinator.FailureKind.Permanent
             error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ->
@@ -2599,7 +2734,10 @@ class MusicService :
 
         
         if (!playerInitialized.value) {
-            Timber.tag(TAG).e(error, "Player error occurred but player not initialized")
+            Timber.tag("PlaybackTrace").e(
+                "PLAYER_ERROR_BEFORE_INIT type=${error::class.java.simpleName} " +
+                    "media3=${Media3PlaybackDiagnostics.errorCodeName(error.errorCode)}(${error.errorCode})",
+            )
             return
         }
 
@@ -2610,12 +2748,20 @@ class MusicService :
         _terminalPlaybackFailure.value = null
         Media3PlaybackDiagnostics.findHttpDetails(error)?.let(trace::httpStatus)
         trace.breadcrumb("CLASSIFIED", diagnosticFailure.exactCode.name)
-        Timber.tag(TAG).w(error, "Player error occurred for $mediaId: errorCode=${error.errorCode}, message=${error.message}")
-        val isFallbackError = error.message?.contains("fallback", ignoreCase = true) == true
-        if (!isFallbackError) {
-            reportException(error)
+        if (mediaId != null && !mediaId.isLocalMediaId() &&
+            streamFailureKind(error, mediaId) == StreamRecoveryCoordinator.FailureKind.AlternateFormat
+        ) {
+            selectedFormatItags[mediaId]?.let { itag ->
+                excludedFormatItags.computeIfAbsent(mediaId) { java.util.concurrent.ConcurrentHashMap.newKeySet() }
+                    .add(itag)
+                trace.formatFallback(itag, null, "decoder_failure")
+            }
         }
-
+        Timber.tag("PlaybackTrace").w(
+            "[${trace.traceId}] PLAYER_ERROR mediaId=${PlaybackRedactor.sanitizeScalar(mediaId)} " +
+                "media3=${Media3PlaybackDiagnostics.errorCodeName(error.errorCode)}(${error.errorCode}) " +
+                "type=${error::class.java.simpleName} message=${PlaybackRedactor.sanitizeText(error.message.orEmpty())}",
+        )
         when {
             isAudioRendererError(error) -> {
                 Timber.tag(TAG).d("AudioTrack error detected (${error.errorCode}), performing safe recovery")
@@ -2724,7 +2870,7 @@ class MusicService :
         diagnosticFailure: PlaybackFailure? = null,
         trace: PlaybackTraceRecorder? = null,
     ): Boolean {
-        val failureKind = streamFailureKind(error)
+        val failureKind = streamFailureKind(error, mediaId)
         if (failureKind == StreamRecoveryCoordinator.FailureKind.Permanent) return false
 
         val queueIndex = player.currentMediaItemIndex
@@ -2751,6 +2897,9 @@ class MusicService :
                 streamRecoveryJob = launchOneShotPlaybackRecovery(
                     decision = decision,
                     beforePrepare = {
+                    if (decision.failure == StreamRecoveryCoordinator.FailureKind.RateLimited) {
+                        delay(RATE_LIMIT_BACKOFF_MS)
+                    }
                     invalidateVolatileStreamCache(mediaId)
                     if (decision.failure.refreshExtractorState) {
                         try {
@@ -2889,11 +3038,18 @@ class MusicService :
         }
 
         if (hasExceededRetryLimit(mediaId)) {
+            PlaybackDiagnostics.currentFor(mediaId)?.breadcrumb("AUDIO_RECOVERY_EXHAUSTED", MAX_RETRY_PER_SONG.toString())
             handleFinalFailure()
             return
         }
 
         incrementRetryCount(mediaId)
+        val trace = PlaybackDiagnostics.currentFor(mediaId)
+        trace?.recoveryStart(
+            attempt = currentMediaIdRetryCount[mediaId] ?: 1,
+            maxAttempts = MAX_RETRY_PER_SONG,
+            reason = "AUDIO_TRACK",
+        )
 
         retryJob?.cancel()
         retryJob = scope.launch {
@@ -2910,6 +3066,11 @@ class MusicService :
                 
                 if (!playerInitialized.value) {
                     Timber.tag(TAG).w("Player no longer initialized, aborting AudioTrack recovery")
+                    trace?.recoveryEnd(
+                        attempt = currentMediaIdRetryCount[mediaId] ?: 1,
+                        success = false,
+                        result = "player_released",
+                    )
                     return@launch
                 }
 
@@ -2931,14 +3092,34 @@ class MusicService :
                             }
                         }
                     }
+                    trace?.recoveryEnd(
+                        attempt = currentMediaIdRetryCount[mediaId] ?: 1,
+                        success = true,
+                        result = "audio_renderer_reprepare",
+                    )
                 } else {
                     Timber.tag(TAG).w("Invalid media item index during AudioTrack recovery")
+                    trace?.recoveryEnd(
+                        attempt = currentMediaIdRetryCount[mediaId] ?: 1,
+                        success = false,
+                        result = "invalid_media_index",
+                    )
                     handleFinalFailure()
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
+                trace?.recoveryEnd(
+                    attempt = currentMediaIdRetryCount[mediaId] ?: 1,
+                    success = false,
+                    result = "cancelled",
+                )
                 throw e
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Error during AudioTrack error recovery")
+                trace?.recoveryEnd(
+                    attempt = currentMediaIdRetryCount[mediaId] ?: 1,
+                    success = false,
+                    result = "reprepare_failed",
+                )
                 handleFinalFailure()
             }
         }
@@ -3145,6 +3326,7 @@ class MusicService :
                     knownArtist = knownArtist,
                     knownTitle = knownTitle,
                     knownDurationMs = knownDuration,
+                    excludedItags = excludedFormatItags[mediaId]?.toSet().orEmpty(),
                 )
             }.getOrElse { throwable ->
                 when (throwable) {
@@ -3222,7 +3404,7 @@ class MusicService :
                 runCatching { com.auriqo.music.constants.AudioQuality.valueOf(it) }.getOrNull()
             }
             val lockedQuality = activeQualityInCache ?: audioQuality
-            val streamKey = StreamRecoveryCoordinator.StreamKey(mediaId, lockedQuality.name)
+            val streamKey = streamKey(mediaId, lockedQuality)
             val trace = PlaybackDiagnostics.currentFor(mediaId)
             trace?.resolutionRequested(mediaId, lockedQuality.name)
 
@@ -3241,6 +3423,7 @@ class MusicService :
                 )
                 ) {
                     streamRecovery.cachedStream(streamKey)?.let { cached ->
+                        cached.itag?.let { selectedFormatItags[mediaId] = it }
                         trace?.resolutionCacheHit(cached.expiresAtMs - System.currentTimeMillis())
                         trace?.streamSelected(cached.itag, cached.mimeType, cached.bitrate)
                         scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
@@ -3251,6 +3434,7 @@ class MusicService :
 
                 if (playerCache.isCached(mediaId, dataSpec.position, CHUNK_LENGTH)) {
                     streamRecovery.cachedStream(streamKey)?.let { cached ->
+                        cached.itag?.let { selectedFormatItags[mediaId] = it }
                         trace?.resolutionCacheHit(cached.expiresAtMs - System.currentTimeMillis())
                         trace?.streamSelected(cached.itag, cached.mimeType, cached.bitrate)
                         scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
@@ -3261,6 +3445,7 @@ class MusicService :
                 }
 
                 streamRecovery.cachedStream(streamKey)?.let { cached ->
+                    cached.itag?.let { selectedFormatItags[mediaId] = it }
                     trace?.resolutionCacheHit(cached.expiresAtMs - System.currentTimeMillis())
                     trace?.streamSelected(cached.itag, cached.mimeType, cached.bitrate)
                     scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
@@ -3290,6 +3475,15 @@ class MusicService :
                     )
                 ) {
                     StreamRecoveryCoordinator.CacheWriteResult.Stored -> {
+                        selectedFormatItags[mediaId] = candidate.format.itag
+                        val excluded = excludedFormatItags[mediaId].orEmpty()
+                        if (excluded.isNotEmpty()) {
+                            trace?.formatFallback(
+                                fromItag = excluded.firstOrNull(),
+                                toItag = candidate.format.itag,
+                                reason = "decoder_or_format_failure",
+                            )
+                        }
                         trace?.streamSelected(
                             candidate.format.itag,
                             candidate.format.mimeType,
@@ -4407,6 +4601,7 @@ class MusicService :
         const val PREBUFFER_LEAD_MS = 3000L
         const val MAX_PRELOAD_TRACKS = 3
         const val PRELOAD_CONCURRENCY = 2
+        const val PRELOAD_FIRST_BYTES = 64 * 1024
         const val PERSISTENT_PLAYER_STATE_FILE = "persistent_player_state.data"
         const val MAX_CONSECUTIVE_ERR = 5
         const val MAX_RETRY_COUNT = 10
@@ -4415,6 +4610,7 @@ class MusicService :
         private const val MIN_GAIN_MB = -1500 
 
         private const val TAG = "MusicService"
+        private const val RATE_LIMIT_BACKOFF_MS = 2_000L
 
         @Volatile
         var isRunning = false
@@ -4440,21 +4636,26 @@ class MusicService :
         )
         if (limit <= 0) return
 
-        val upcomingMediaIds = (1..limit)
-            .map { offset -> player.getMediaItemAt(currentIndex + offset).mediaId }
-            .distinct()
+        val preloadPlan = PlaybackPreloadPlanner(MAX_PRELOAD_TRACKS)
+        (1..limit).forEach { offset ->
+            preloadPlan.offer(
+                mediaId = player.getMediaItemAt(currentIndex + offset).mediaId,
+                priority = offset - 1,
+            )
+        }
+        val upcomingMediaIds = preloadPlan.snapshot()
 
         preloadJob?.cancel()
         preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             coroutineScope {
                 val dispatcher = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(PRELOAD_CONCURRENCY)
-                upcomingMediaIds.mapIndexed { priority, mediaId ->
+                upcomingMediaIds.map { candidate ->
                     async(dispatcher) {
                         preloadUpcomingItem(
-                            mediaId = mediaId,
+                            mediaId = candidate.mediaId,
                             quality = preloadQuality,
                             preloadLyrics = preloadLyrics,
-                            priority = priority,
+                            priority = candidate.priority,
                         )
                     }
                 }.awaitAll()
@@ -4471,14 +4672,16 @@ class MusicService :
         if (mediaId.isLocalMediaId()) return
         val trace = PlaybackDiagnostics.startResolution(mediaId, "queue_lookahead_p$priority")
         try {
-            val streamKey = StreamRecoveryCoordinator.StreamKey(mediaId, quality.name)
+            val streamKey = streamKey(mediaId, quality)
             val isFullyDownloaded = downloadCache.getCachedSpans(mediaId).isNotEmpty()
             val cached = streamRecovery.cachedStream(streamKey)
             if (isFullyDownloaded) {
                 trace.breadcrumb("DOWNLOAD_CACHE_HIT", "preload")
             } else if (cached != null) {
+                cached.itag?.let { selectedFormatItags[mediaId] = it }
                 trace.resolutionCacheHit(cached.expiresAtMs - System.currentTimeMillis())
                 trace.streamSelected(cached.itag, cached.mimeType, cached.bitrate)
+                warmupNextTrackBytes(mediaId, cached, priority, trace)
             } else {
                 trace.resolutionRequested(mediaId, quality.name)
                 trace.resolutionCacheMiss("preload")
@@ -4513,8 +4716,12 @@ class MusicService :
                         )
                     ) {
                         StreamRecoveryCoordinator.CacheWriteResult.Stored -> {
+                            selectedFormatItags[mediaId] = playback.format.itag
                             trace.streamSelected(playback.format.itag, playback.format.mimeType, playback.format.bitrate)
                             trace.breadcrumb("PRELOAD_STORED", "priority=$priority")
+                            streamRecovery.cachedStream(streamKey)?.let { cached ->
+                                warmupNextTrackBytes(mediaId, cached, priority, trace)
+                            }
                         }
 
                         StreamRecoveryCoordinator.CacheWriteResult.Superseded -> {
@@ -4558,6 +4765,47 @@ class MusicService :
                 upsert(com.auriqo.music.db.entities.LyricsEntity(id = mediaId, lyrics = lyricsResult.lyrics))
             }
             Timber.tag(TAG).d("Preloaded lyrics")
+        }
+    }
+
+    /** Warms only the next track's first 64 KiB; it never downloads the song or runs on metered data. */
+    private suspend fun warmupNextTrackBytes(
+        mediaId: String,
+        cached: StreamRecoveryCoordinator.CachedStream,
+        priority: Int,
+        trace: PlaybackTraceRecorder,
+    ) {
+        if (
+            priority != 0 ||
+            connectivityManager.isActiveNetworkMetered ||
+            dataStore.snapshot(com.auriqo.music.constants.DataSaverEnabledKey, false)
+        ) return
+        val source = createCacheDataSource().createDataSource()
+        try {
+            val spec = DataSpec.Builder()
+                .setUri(cached.url.toUri())
+                .setKey(mediaId)
+                .setPosition(0L)
+                .setLength(PRELOAD_FIRST_BYTES.toLong())
+                .build()
+            var total = 0
+            source.open(spec)
+            val buffer = ByteArray(16 * 1024)
+            while (total < PRELOAD_FIRST_BYTES) {
+                val read = source.read(buffer, 0, minOf(buffer.size, PRELOAD_FIRST_BYTES - total))
+                if (read == C.RESULT_END_OF_INPUT) break
+                if (read <= 0) break
+                total += read
+            }
+            trace.breadcrumb("FIRST_BYTES_WARMED", total.toString())
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Media3PlaybackDiagnostics.findHttpDetails(error)?.let(trace::httpStatus)
+            trace.breadcrumb("FIRST_BYTES_WARMUP_FAILED", error::class.simpleName)
+            streamRecovery.invalidateStream(mediaId)
+        } finally {
+            runCatching { source.close() }
         }
     }
 

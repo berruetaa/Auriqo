@@ -60,6 +60,8 @@ internal class StreamRecoveryCoordinator(
         val invalidatesStreamResolution: Boolean,
     ) {
         RejectedStream(refreshExtractorState = true, invalidatesStreamResolution = true),
+        RateLimited(refreshExtractorState = false, invalidatesStreamResolution = true),
+        AlternateFormat(refreshExtractorState = false, invalidatesStreamResolution = true),
         ReloadRequired(refreshExtractorState = true, invalidatesStreamResolution = true),
         UnclassifiedStreamIo(refreshExtractorState = true, invalidatesStreamResolution = true),
         CacheOrStreamCorruption(refreshExtractorState = false, invalidatesStreamResolution = true),
@@ -180,6 +182,12 @@ internal class StreamRecoveryCoordinator(
     /** Arms a new user/media-item playback generation. A successful READY state must not call this. */
     fun beginPlayback(mediaId: String?, force: Boolean = false) = synchronized(lock) {
         if (force || activeMediaId != mediaId) {
+            val previousMediaId = activeMediaId
+            if (previousMediaId != null && (previousMediaId != mediaId || force)) {
+                // A resolver finishing for the item that just lost focus must not repopulate a
+                // generation that belongs to an older user selection.
+                invalidateGenerationLocked(previousMediaId)
+            }
             activeMediaId = mediaId
             attemptedRecoveryFor = null
             recoveryInProgress = null

@@ -152,6 +152,7 @@ data class PlaybackFailure(
     val technicalMessage: String,
     val media3Code: Int? = null,
     val media3CodeName: String? = null,
+    val http: PlaybackHttpDetails? = null,
     val httpStatus: Int? = null,
     val playabilityStatus: String? = null,
     val attempt: Int = 0,
@@ -348,6 +349,7 @@ sealed interface PlaybackDiagnosticEvent {
         val attempt: Int,
         val success: Boolean,
         val result: String,
+        val durationMs: Long? = null,
     ) : PlaybackDiagnosticEvent {
         override val type = "RECOVERY_END"
     }
@@ -658,7 +660,7 @@ class PlaybackTraceRecorder internal constructor(
         val duration = timingStarts.remove("recovery")?.let { (clockNs() - it) / 1_000_000L }
         if (duration != null) metrics.record(PlaybackMetric.RECOVERY_LATENCY, duration)
         metrics.recordRecovery(success)
-        append(PlaybackDiagnosticEvent.RecoveryEnd(traceId, elapsedMs(), currentMediaId, attempt, success, result))
+        append(PlaybackDiagnosticEvent.RecoveryEnd(traceId, elapsedMs(), currentMediaId, attempt, success, result, duration))
     }
 
     fun formatFallback(fromItag: Int?, toItag: Int?, reason: String) = append(
@@ -690,8 +692,8 @@ object PlaybackDiagnostics {
     val buffer = PlaybackDiagnosticBuffer()
     val metrics = PlaybackMetrics()
     private val current = AtomicReference<PlaybackTraceRecorder?>(null)
-    private val traces = ConcurrentHashMap<String, PlaybackTraceRecorder>()
     private val resolutionTraces = ConcurrentHashMap<String, PlaybackTraceRecorder>()
+    private val mediaTraces = ConcurrentHashMap<String, PlaybackTraceRecorder>()
 
     fun startUserRequest(mediaId: String? = null, source: String = "user"): PlaybackTraceRecorder =
         start(mediaId, source).also {
@@ -707,8 +709,8 @@ object PlaybackDiagnostics {
             metrics = metrics,
             clockNs = System::nanoTime,
         )
-        traces[recorder.traceId] = recorder
         current.set(recorder)
+        mediaId?.let { rememberMediaTrace(it, recorder) }
         return recorder
     }
 
@@ -716,10 +718,10 @@ object PlaybackDiagnostics {
 
     fun currentFor(mediaId: String?): PlaybackTraceRecorder? {
         val recorder = current.get()
-        if (recorder != null && (mediaId == null || recorder.mediaId == null || recorder.mediaId == mediaId)) {
+        if (recorder != null && (mediaId == null || recorder.mediaId == mediaId)) {
             return recorder
         }
-        return mediaId?.let(resolutionTraces::get)
+        return mediaId?.let { resolutionTraces[it] ?: mediaTraces[it] }
     }
 
     /** Creates a bounded trace for an anticipatory resolution without stealing the active trace. */
@@ -736,6 +738,7 @@ object PlaybackDiagnostics {
             clockNs = System::nanoTime,
         ).also {
             resolutionTraces[mediaId] = it
+            rememberMediaTrace(mediaId, it)
             it.breadcrumb("RESOLUTION_SCOPE", source)
         }
     }
@@ -754,13 +757,21 @@ object PlaybackDiagnostics {
 
     fun clear() {
         current.set(null)
-        traces.clear()
         resolutionTraces.clear()
+        mediaTraces.clear()
         buffer.clear()
         metrics.clear()
     }
 
+    private fun rememberMediaTrace(mediaId: String, trace: PlaybackTraceRecorder) {
+        if (mediaTraces.size >= MAX_TRACKED_MEDIA_TRACES) {
+            mediaTraces.keys.firstOrNull()?.let(mediaTraces::remove)
+        }
+        mediaTraces[mediaId] = trace
+    }
+
     private const val MAX_RESOLUTION_TRACES = 64
+    private const val MAX_TRACKED_MEDIA_TRACES = 64
 }
 
 fun newPlaybackTraceId(uuid: UUID = UUID.randomUUID()): String =
@@ -784,7 +795,7 @@ fun PlaybackDiagnosticEvent.toLogLine(): String = buildString {
         is PlaybackDiagnosticEvent.DataSourceOpenEnd -> append(" durationMs=").append(durationMs).append(" success=").append(success)
         is PlaybackDiagnosticEvent.HttpStatus -> append(" status=").append(details.responseCode).append(" host=").append(details.host).append(" queryKeys=").append(details.queryKeys).append(" expireEpoch=").append(details.expireEpoch)
         is PlaybackDiagnosticEvent.RecoveryStart -> append(" attempt=").append(attempt).append('/').append(maxAttempts).append(" reason=").append(PlaybackRedactor.sanitizeScalar(reason))
-        is PlaybackDiagnosticEvent.RecoveryEnd -> append(" attempt=").append(attempt).append(" success=").append(success).append(" result=").append(PlaybackRedactor.sanitizeScalar(result))
+        is PlaybackDiagnosticEvent.RecoveryEnd -> append(" attempt=").append(attempt).append(" success=").append(success).append(" result=").append(PlaybackRedactor.sanitizeScalar(result)).append(" durationMs=").append(durationMs)
         is PlaybackDiagnosticEvent.FormatFallback -> append(" from=").append(fromItag).append(" to=").append(toItag).append(" reason=").append(PlaybackRedactor.sanitizeScalar(reason))
         is PlaybackDiagnosticEvent.NetworkChanged -> append(" connected=").append(connected).append(" networkType=").append(PlaybackRedactor.sanitizeScalar(networkType))
         is PlaybackDiagnosticEvent.TerminalFailure -> append(" code=").append(failure.stableCode).append(" stage=").append(failure.stage).append(" media3=").append(failure.media3CodeName).append(" http=").append(failure.httpStatus)
@@ -819,7 +830,7 @@ object PlaybackCauseChainExtractor {
 object PlaybackRedactor {
     private val urlPattern = Regex("https?://[^\\s\\\"'<>]+", RegexOption.IGNORE_CASE)
     private val secretPattern = Regex(
-        "(?i)(cookie|authorization|proxy-authorization|po[-_]?token|visitor[-_]?data|signature|oauth(?:2)?|lastfm[-_]?session|spotify[-_]?token)\\s*[:=]\\s*[^\\s,;]+",
+        "(?i)(cookie|authorization|proxy-authorization|po[-_]?token|visitor[-_]?(?:data|id)|x-goog-visitor-id|signature|oauth(?:2)?|lastfm[-_]?session|spotify[-_]?token)\\s*[:=]\\s*[^\\s,;]+",
     )
 
     fun sanitizeText(value: String): String = value
@@ -905,7 +916,11 @@ object PlaybackFailureClassifier {
             append(code.name)
             input.playabilityStatus?.let { append(" playabilityStatus=").append(PlaybackRedactor.sanitizeScalar(it)) }
             input.playabilityReason?.let { append(" reason=").append(PlaybackRedactor.sanitizeText(it)) }
-            input.http?.let { append(" http=").append(it.responseCode).append(" host=").append(it.host) }
+            input.http?.let {
+                append(" http=").append(it.responseCode)
+                    .append(" host=").append(it.host)
+                    .append(" message=").append(it.responseMessage)
+            }
             input.media3CodeName?.let { append(" media3=").append(it).append('(').append(input.media3Code).append(')') }
         }
         return PlaybackFailure(
@@ -918,6 +933,7 @@ object PlaybackFailureClassifier {
             technicalMessage = PlaybackRedactor.sanitizeText(technical),
             media3Code = input.media3Code,
             media3CodeName = input.media3CodeName,
+            http = input.http,
             httpStatus = input.http?.responseCode,
             playabilityStatus = input.playabilityStatus,
             attempt = input.attempt,

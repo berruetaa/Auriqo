@@ -34,6 +34,7 @@ object Media3PlaybackDiagnostics {
             playabilityReason = resolution?.playabilityReason,
             hint = resolution?.hint ?: hintFor(error),
             cause = error,
+            causeChain = causeChain(error),
             attempt = attempt,
             maxAttempts = maxAttempts,
             streamGeneration = streamGeneration,
@@ -138,6 +139,26 @@ object Media3PlaybackDiagnostics {
     private fun headerValue(headers: Map<String, String>, name: String): String? =
         headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
 
+    private fun causeChain(error: Throwable): List<PlaybackCauseEntry> {
+        val http = findHttpDetails(error)
+        return PlaybackCauseChainExtractor.extract(error).map { entry ->
+            if (entry.className.contains("InvalidResponseCodeException")) {
+                entry.copy(
+                    relevantFields = buildMap {
+                        http?.let {
+                            put("responseCode", it.responseCode.toString())
+                            it.responseMessage?.let { message -> put("responseMessage", message) }
+                            it.host?.let { host -> put("host", host) }
+                            it.itag?.let { itag -> put("itag", itag.toString()) }
+                        }
+                    },
+                )
+            } else {
+                entry
+            }
+        }
+    }
+
     private inline fun <reified T : Throwable> findCause(root: Throwable): T? {
         val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
         var current: Throwable? = root
@@ -162,8 +183,9 @@ class PlaybackTracingDataSource(
     }
 
     override fun open(dataSpec: androidx.media3.datasource.DataSpec): Long {
-        trace = traceProvider(dataSpec.key)
-        trace?.attachMediaId(dataSpec.key)
+        val diagnosticMediaId = dataSpec.key?.removeSuffix("_diff")
+        trace = traceProvider(diagnosticMediaId)
+        trace?.attachMediaId(diagnosticMediaId)
         trace?.dataSourceOpenStart()
         return try {
             upstream.open(dataSpec).also { trace?.dataSourceOpenEnd(success = true) }

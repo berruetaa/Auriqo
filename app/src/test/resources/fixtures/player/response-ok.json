@@ -1,0 +1,8 @@
+{
+  "responseContext": { "visitorData": null, "serviceTrackingParams": null },
+  "playabilityStatus": { "status": "OK", "reason": null },
+  "playerConfig": null,
+  "streamingData": { "formats": null, "adaptiveFormats": [], "expiresInSeconds": 21540 },
+  "videoDetails": null,
+  "playbackTracking": null
+}

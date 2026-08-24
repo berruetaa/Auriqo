@@ -48,12 +48,19 @@ class PlaybackDiagnosticsTest {
         nowNs = 500_000_000
         trace.firstAudio()
         trace.firstAudio()
+        trace.recoveryStart(attempt = 1, maxAttempts = 1, reason = "HTTP_403")
+        nowNs = 650_000_000
+        trace.recoveryEnd(attempt = 1, success = true, result = "recovered")
 
         assertTrue(buffer.snapshot().isNotEmpty())
         assertTrue(buffer.snapshot().all { it.traceId == "PB-ABCDEF12" })
         assertEquals(500L, metrics.snapshot().histograms.getValue(PlaybackMetric.TAP_TO_FIRST_AUDIO).p50Ms)
         assertEquals(250L, metrics.snapshot().histograms.getValue(PlaybackMetric.RESOLUTION_LATENCY).p50Ms)
         assertEquals(1, buffer.snapshot().count { it is PlaybackDiagnosticEvent.FirstAudio })
+        assertEquals(
+            150L,
+            buffer.snapshot().filterIsInstance<PlaybackDiagnosticEvent.RecoveryEnd>().single().durationMs,
+        )
     }
 
     @Test
@@ -179,6 +186,33 @@ class PlaybackDiagnosticsTest {
     }
 
     @Test
+    fun detachedResolutionDoesNotStealAnUnboundActiveTrace() {
+        PlaybackDiagnostics.clear()
+        try {
+            val active = PlaybackDiagnostics.start(mediaId = null, source = "queue")
+            val preload = PlaybackDiagnostics.startResolution("video-id", "preload")
+
+            assertEquals(active.traceId, PlaybackDiagnostics.current()?.traceId)
+            assertEquals(preload.traceId, PlaybackDiagnostics.currentFor("video-id")?.traceId)
+        } finally {
+            PlaybackDiagnostics.clear()
+        }
+    }
+
+    @Test
+    fun boundedMediaTraceLookupKeepsLateDataSourceEventsCorrelated() {
+        PlaybackDiagnostics.clear()
+        try {
+            val first = PlaybackDiagnostics.start("A", "tap")
+            PlaybackDiagnostics.start("B", "tap")
+
+            assertEquals(first.traceId, PlaybackDiagnostics.currentFor("A")?.traceId)
+        } finally {
+            PlaybackDiagnostics.clear()
+        }
+    }
+
+    @Test
     fun debugReportContainsTraceAndRedactsSignedValues() {
         val failure = PlaybackFailureClassifier.classify(
             PlaybackFailureInput(
@@ -231,6 +265,32 @@ class PlaybackDiagnosticsTest {
         assertTrue(report.contains("IO_BAD_HTTP_STATUS (2004)"))
         assertFalse(report.contains("secret"))
         assertFalse(report.contains("Cookie"))
+    }
+
+    @Test
+    fun typedResolverEvidenceIsClassifiedWithMedia3Metadata() {
+        val resolverFailure = PlaybackResolutionException(
+            message = "Sign in to confirm your age",
+            playabilityStatus = "LOGIN_REQUIRED",
+            playabilityReason = "Sign in to confirm your age",
+        )
+        val failure = PlaybackFailureClassifier.classify(
+            PlaybackFailureInput(
+                traceId = "PB-RESOLVER1",
+                mediaId = "video-id",
+                stage = PlaybackFailureStage.PLAYER_RESPONSE,
+                media3Code = 2000,
+                media3CodeName = "REMOTE_ERROR",
+                playabilityStatus = resolverFailure.playabilityStatus,
+                playabilityReason = resolverFailure.playabilityReason,
+                cause = resolverFailure,
+            ),
+        )
+
+        assertEquals(PlaybackFailureCode.PLAYABILITY_AGE_RESTRICTED, failure.exactCode)
+        assertEquals("LOGIN_REQUIRED", failure.playabilityStatus)
+        assertEquals(2000, failure.media3Code)
+        assertTrue(failure.causeChain.any { it.className == "PlaybackResolutionException" })
     }
 
 }

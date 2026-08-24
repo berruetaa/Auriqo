@@ -1,0 +1,8 @@
+{
+  "responseContext": { "visitorData": null, "serviceTrackingParams": null },
+  "playabilityStatus": { "status": "LOGIN_REQUIRED", "reason": "Sign in to play this video" },
+  "playerConfig": null,
+  "streamingData": null,
+  "videoDetails": null,
+  "playbackTracking": null
+}

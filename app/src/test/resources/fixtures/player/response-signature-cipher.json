@@ -1,0 +1,35 @@
+{
+  "responseContext": { "visitorData": null, "serviceTrackingParams": null },
+  "playabilityStatus": { "status": "OK", "reason": null },
+  "playerConfig": null,
+  "streamingData": {
+    "formats": null,
+    "adaptiveFormats": [
+      {
+        "itag": 251,
+        "url": null,
+        "mimeType": "audio/webm; codecs=opus",
+        "bitrate": 160000,
+        "width": null,
+        "height": null,
+        "contentLength": null,
+        "quality": "tiny",
+        "fps": null,
+        "qualityLabel": null,
+        "averageBitrate": null,
+        "audioQuality": "AUDIO_QUALITY_MEDIUM",
+        "approxDurationMs": "180000",
+        "audioSampleRate": 48000,
+        "audioChannels": 2,
+        "loudnessDb": null,
+        "lastModified": null,
+        "signatureCipher": "s=placeholder-signature&sp=sig&url=https%3A%2F%2Fcdn.invalid%2Faudio",
+        "cipher": null,
+        "audioTrack": null
+      }
+    ],
+    "expiresInSeconds": 21540
+  },
+  "videoDetails": null,
+  "playbackTracking": null
+}
