@@ -163,6 +163,7 @@ import com.auriqo.music.db.entities.BeatInfoEntity
 import com.auriqo.music.playback.audio.BeatAnalyzer
 import com.auriqo.music.playback.audio.SilenceDetectorAudioProcessor
 import com.auriqo.music.playback.diagnostics.Media3PlaybackDiagnostics
+import com.auriqo.music.playback.diagnostics.PlaybackCauseChainExtractor
 import com.auriqo.music.playback.diagnostics.PlaybackDiagnostics
 import com.auriqo.music.playback.diagnostics.PlaybackFailure
 import com.auriqo.music.playback.diagnostics.PlaybackFailureClassifier
@@ -351,7 +352,24 @@ class MusicService :
 
     private val secondaryPlayerListener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
-            Timber.tag(TAG).e(error, "Secondary player error")
+            val mediaId = secondaryPlayer?.currentMediaItem?.mediaId
+            val existingTrace = PlaybackDiagnostics.currentFor(mediaId)
+            val trace = existingTrace
+                ?: mediaId?.let { PlaybackDiagnostics.startResolution(it, "secondary_player") }
+                ?: PlaybackDiagnostics.start(null, "secondary_player")
+            Media3PlaybackDiagnostics.findHttpDetails(error)?.let(trace::httpStatus)
+            val causes = PlaybackCauseChainExtractor.extract(error)
+                .joinToString(" <- ") { cause ->
+                    "${cause.className}:${cause.message.orEmpty()}"
+                }
+            trace.breadcrumb(
+                "SECONDARY_PLAYER_ERROR",
+                "media3=${Media3PlaybackDiagnostics.errorCodeName(error.errorCode)}(${error.errorCode}) " +
+                    "type=${error::class.java.simpleName} causes=$causes",
+            )
+            if (existingTrace == null && mediaId != null) {
+                PlaybackDiagnostics.finishResolution(mediaId, trace)
+            }
             secondaryPlayer?.stop()
             secondaryPlayer?.clearMediaItems()
             secondaryPlayer = null
