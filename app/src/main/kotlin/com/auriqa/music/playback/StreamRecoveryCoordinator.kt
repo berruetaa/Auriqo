@@ -7,16 +7,28 @@ package com.auriqo.music.playback
  * decisions to a player operation, which makes cache invalidation and retry limits deterministic.
  */
 internal class StreamRecoveryCoordinator(
+    private val expirySafetyMarginMs: Long = DEFAULT_EXPIRY_SAFETY_MARGIN_MS,
     private val clockMs: () -> Long = System::currentTimeMillis,
 ) {
+    init {
+        require(expirySafetyMarginMs >= 0L) { "expirySafetyMarginMs must not be negative" }
+    }
+
     data class StreamKey(
         val mediaId: String,
         val quality: String,
+        val sessionGeneration: Long = 0L,
+        val networkGeneration: Long = 0L,
     )
 
     data class CachedStream(
         val url: String,
         val expiresAtMs: Long,
+        val resolvedAtMs: Long = 0L,
+        val generation: Long = 0L,
+        val itag: Int? = null,
+        val mimeType: String? = null,
+        val bitrate: Int? = null,
     )
 
     /** Whether a completed resolution was accepted into the current generation. */
@@ -82,7 +94,7 @@ internal class StreamRecoveryCoordinator(
 
     fun cachedStream(key: StreamKey): CachedStream? = synchronized(lock) {
         val cached = streams[key] ?: return@synchronized null
-        if (cached.expiresAtMs <= clockMs()) {
+        if (cached.expiresAtMs <= safeExpiryBoundaryLocked()) {
             streams.remove(key)
             null
         } else {
@@ -103,16 +115,28 @@ internal class StreamRecoveryCoordinator(
         url: String,
         expiresAtMs: Long,
         token: ResolutionToken,
+        resolvedAtMs: Long = clockMs(),
+        itag: Int? = null,
+        mimeType: String? = null,
+        bitrate: Int? = null,
     ): CacheWriteResult = synchronized(lock) {
         if (token.mediaId != key.mediaId ||
             token.generation != resolutionGenerationLocked(key.mediaId)
         ) {
             return@synchronized CacheWriteResult.Superseded
         }
-        if (expiresAtMs <= clockMs()) {
+        if (expiresAtMs <= safeExpiryBoundaryLocked()) {
             return@synchronized CacheWriteResult.Expired
         }
-        streams[key] = CachedStream(url, expiresAtMs)
+        streams[key] = CachedStream(
+            url = url,
+            expiresAtMs = expiresAtMs,
+            resolvedAtMs = resolvedAtMs,
+            generation = token.generation,
+            itag = itag,
+            mimeType = mimeType,
+            bitrate = bitrate,
+        )
         CacheWriteResult.Stored
     }
 
@@ -122,7 +146,7 @@ internal class StreamRecoveryCoordinator(
         val iterator = streams.entries.iterator()
         while (iterator.hasNext()) {
             val entry = iterator.next()
-            if (entry.value.expiresAtMs <= now) {
+            if (entry.value.expiresAtMs <= now + expirySafetyMarginMs) {
                 iterator.remove()
             } else if (quality == null && entry.key.mediaId == mediaId) {
                 quality = entry.key.quality
@@ -162,6 +186,8 @@ internal class StreamRecoveryCoordinator(
             recoveryGeneration += 1
         }
     }
+
+    fun playbackGeneration(): Long = synchronized(lock) { recoveryGeneration }
 
     fun onFailure(
         snapshot: PlaybackSnapshot,
@@ -215,7 +241,13 @@ internal class StreamRecoveryCoordinator(
 
     private fun resolutionGenerationLocked(mediaId: String): Long = resolutionGenerations[mediaId] ?: 0L
 
+    private fun safeExpiryBoundaryLocked(): Long = clockMs() + expirySafetyMarginMs
+
     private fun invalidateGenerationLocked(mediaId: String) {
         resolutionGenerations[mediaId] = resolutionGenerationLocked(mediaId) + 1
+    }
+
+    private companion object {
+        const val DEFAULT_EXPIRY_SAFETY_MARGIN_MS = 15_000L
     }
 }

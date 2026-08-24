@@ -5,7 +5,6 @@ package com.auriqo.music.utils
 import android.net.ConnectivityManager
 import android.net.Uri
 import android.util.Log
-import androidx.media3.common.PlaybackException
 import com.music.innertube.NewPipeExtractor
 import com.music.innertube.YouTube
 import com.music.innertube.models.YouTubeClient
@@ -32,6 +31,10 @@ import com.auriqo.music.utils.potoken.PoTokenGenerator
 import com.auriqo.music.utils.potoken.PoTokenResult
 import com.auriqo.music.utils.PlaybackLogLevel
 import com.auriqo.music.utils.PlaybackLogManager
+import com.auriqo.music.playback.diagnostics.PlaybackDiagnostics
+import com.auriqo.music.playback.diagnostics.PlaybackFailureHint
+import com.auriqo.music.playback.diagnostics.PlaybackRedactor
+import com.auriqo.music.playback.diagnostics.PlaybackResolutionException
 import com.music.innertube.models.IpVersion
 import okhttp3.Dns
 import okhttp3.OkHttpClient
@@ -64,7 +67,10 @@ object YTPlayerUtils {
         .proxySelector(object : ProxySelector() {
             override fun select(uri: URI?): List<Proxy> = listOfNotNull(YouTube.proxy ?: Proxy.NO_PROXY)
             override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) {
-                Timber.tag(TAG).e(ioe, "Proxy connection failed for URI: $uri")
+                Timber.tag(TAG).e(
+                    "Proxy connection failed host=${uri?.host ?: "unknown"} " +
+                        "type=${ioe?.javaClass?.simpleName ?: "unknown"}",
+                )
             }
         })
         .proxyAuthenticator { _, response ->
@@ -133,17 +139,26 @@ object YTPlayerUtils {
         knownDurationMs: Long? = null,
         isDownload: Boolean = false
     ): Result<PlaybackData> {
+        val trace = PlaybackDiagnostics.currentFor(videoId)
+        trace?.playerResponseStart()
         val firstAttempt = resolvePlaybackData(videoId, playlistId, audioQuality, connectivityManager, context, knownArtist, knownTitle)
-        if (firstAttempt.isFailure && YouTube.cookie == null) {
+        val result = if (firstAttempt.isFailure && YouTube.cookie == null) {
             Timber.tag(TAG).w("Playback failed for guest. Rotating session and retrying...")
             PlaybackLogManager.log(PlaybackLogLevel.BOT, "Playback failed for guest", "Triggering bot detection mitigation (rotating guest session)")
             BotDetectionMitigator.rotateGuestSession()
             val retryResult = resolvePlaybackData(videoId, playlistId, audioQuality, connectivityManager, context, knownArtist, knownTitle)
             retryResult.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
-            return retryResult
+            retryResult
+        } else {
+            firstAttempt
         }
-        firstAttempt.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
-        return firstAttempt
+        result.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
+        trace?.playerResponseEnd(
+            status = (result.exceptionOrNull() as? PlaybackResolutionException)?.playabilityStatus
+                ?: if (result.isSuccess) "OK" else null,
+            success = result.isSuccess,
+        )
+        return result
     }
 
     private suspend fun resolvePlaybackData(
@@ -257,7 +272,10 @@ object YTPlayerUtils {
 
         
         if (mainPlayerResponse == null) {
-            throw Exception("Failed to get player response")
+            throw PlaybackResolutionException(
+                message = "Failed to get player response",
+                hint = PlaybackFailureHint.PLAYER_RESPONSE_FAILED,
+            )
         }
 
         
@@ -330,6 +348,7 @@ object YTPlayerUtils {
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
+                        PlaybackDiagnostics.currentFor(videoId)?.breadcrumb("POTOKEN_FAILED", e::class.simpleName)
                         Timber.tag(logTag).e(e, "Lazy PoToken generation failed")
                     }
                 }
@@ -402,6 +421,8 @@ object YTPlayerUtils {
 
                 
                 if (needsNTransform) {
+                    val trace = PlaybackDiagnostics.currentFor(videoId)
+                    trace?.cipherStart("n_transform")
                     try {
                         Timber.tag(logTag).d("Applying n-transform to stream URL for ${currentClient.clientName}")
                             val transformed = CipherDeobfuscator.transformNParamInUrl(rawStreamUrl, videoId)
@@ -409,9 +430,13 @@ object YTPlayerUtils {
                             streamUrl = transformed
                             Timber.tag(logTag).d("N-transform applied successfully")
                         }
+                        trace?.cipherEnd("n_transform", success = true)
                     } catch (e: kotlinx.coroutines.CancellationException) {
+                        trace?.cipherEnd("n_transform", success = false)
                         throw e
                     } catch (e: Exception) {
+                        trace?.cipherEnd("n_transform", success = false)
+                        trace?.breadcrumb("N_TRANSFORM_FAILED", e::class.simpleName)
                         Timber.tag(logTag).e(e, "N-transform failed: ${e.message}")
                     }
                 }
@@ -482,6 +507,7 @@ object YTPlayerUtils {
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (e: Exception) {
+                            PlaybackDiagnostics.currentFor(videoId)?.breadcrumb("N_TRANSFORM_FAILED", e::class.simpleName)
                             Timber.tag(logTag).e(e, "CipherDeobfuscator n-transform error")
                         }
 
@@ -501,32 +527,48 @@ object YTPlayerUtils {
 
         if (streamPlayerResponse == null) {
             Timber.tag(logTag).e("Bad stream player response - all clients failed")
-            throw Exception("Bad stream player response")
+            throw PlaybackResolutionException(
+                message = "Bad stream player response",
+                hint = PlaybackFailureHint.PLAYER_RESPONSE_FAILED,
+            )
         }
 
         if (streamPlayerResponse.playabilityStatus.status != "OK") {
             val errorReason = streamPlayerResponse.playabilityStatus.reason
             Timber.tag(logTag).e("Playability status not OK: $errorReason")
-            throw PlaybackException(
-                errorReason,
-                null,
-                PlaybackException.ERROR_CODE_REMOTE_ERROR
+            throw PlaybackResolutionException(
+                message = errorReason ?: "Playability status not OK",
+                playabilityStatus = streamPlayerResponse.playabilityStatus.status,
+                playabilityReason = errorReason,
             )
         }
 
         if (streamExpiresInSeconds == null) {
             Timber.tag(logTag).e("Missing stream expire time")
-            throw Exception("Missing stream expire time")
+            throw PlaybackResolutionException(
+                message = "Missing stream expire time",
+                hint = PlaybackFailureHint.STREAM_URL_EXPIRED,
+            )
         }
 
         if (format == null) {
             Timber.tag(logTag).e("Could not find format")
-            throw Exception("Could not find format")
+            throw PlaybackResolutionException(
+                message = "Could not find format",
+                hint = PlaybackFailureHint.FORMAT_NOT_FOUND,
+            )
         }
 
         if (streamUrl == null) {
             Timber.tag(logTag).e("Could not find stream url")
-            throw Exception("Could not find stream url")
+            throw PlaybackResolutionException(
+                message = "Could not find stream url",
+                hint = if (!format.signatureCipher.isNullOrEmpty() || !format.cipher.isNullOrEmpty()) {
+                    PlaybackFailureHint.SIGNATURE_DECIPHER_FAILED
+                } else {
+                    PlaybackFailureHint.STREAM_URL_EXPIRED
+                },
+            )
         }
 
         Timber.tag(logTag).d("Successfully obtained playback data with format: ${format.mimeType}, bitrate: ${format.bitrate}")
@@ -597,7 +639,10 @@ object YTPlayerUtils {
                 return isSuccessful
             }
         } catch (e: Exception) {
-            Timber.tag(logTag).e(e, "Stream URL validation failed with exception")
+            Timber.tag(logTag).e(
+                "Stream URL validation failed type=${e::class.java.simpleName} " +
+                    "message=${PlaybackRedactor.sanitizeText(e.message.orEmpty())}",
+            )
             reportException(e)
         }
         return false
@@ -682,7 +727,18 @@ object YTPlayerUtils {
         val signatureCipher = format.signatureCipher ?: format.cipher
         if (!signatureCipher.isNullOrEmpty()) {
             Timber.tag(logTag).d("Format has signatureCipher, using custom deobfuscation")
-            val customDeobfuscatedUrl = CipherDeobfuscator.deobfuscateStreamUrl(signatureCipher, videoId)
+            val trace = PlaybackDiagnostics.currentFor(videoId)
+            trace?.cipherStart("signature")
+            val customDeobfuscatedUrl = try {
+                CipherDeobfuscator.deobfuscateStreamUrl(signatureCipher, videoId)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                trace?.cipherEnd("signature", success = false)
+                throw e
+            } catch (e: Exception) {
+                trace?.breadcrumb("SIGNATURE_DECIPHER_FAILED", e::class.simpleName)
+                null
+            }
+            trace?.cipherEnd("signature", success = customDeobfuscatedUrl != null)
             if (customDeobfuscatedUrl != null) {
                 Timber.tag(logTag).d("Stream URL obtained via custom cipher deobfuscation")
                 return ResolvedStreamUrl(customDeobfuscatedUrl, StreamUrlSource.RawPlayer)
@@ -702,6 +758,8 @@ object YTPlayerUtils {
             Timber.tag(logTag).d("Stream URL obtained via NewPipe deobfuscation")
             return ResolvedStreamUrl(deobfuscatedUrl, StreamUrlSource.NewPipe)
         }
+
+        PlaybackDiagnostics.currentFor(videoId)?.breadcrumb("STREAM_URL_NOT_FOUND", "itag=${format.itag}")
 
         
         Timber.tag(logTag).d("Trying StreamInfo fallback for URL")

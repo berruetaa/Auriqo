@@ -152,6 +152,8 @@ class PlayerConnection(
     val canSkipNext = MutableStateFlow(true)
 
     val error = MutableStateFlow<PlaybackException?>(null)
+    /** Structured terminal failure; recoverable player callbacks never populate this flow. */
+    val playbackFailure = service.terminalPlaybackFailure
     val isMuted = service.isMuted
 
     val waitingForNetworkConnection = service.waitingForNetworkConnection
@@ -231,6 +233,8 @@ class PlayerConnection(
             throw e
         }
     }
+
+    fun retryCurrentPlayback() = service.retryCurrentPlayback()
 
     fun startRadioSeamlessly() {
         

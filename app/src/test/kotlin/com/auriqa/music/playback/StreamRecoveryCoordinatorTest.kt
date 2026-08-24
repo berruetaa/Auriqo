@@ -294,4 +294,54 @@ class StreamRecoveryCoordinatorTest {
 
         assertNull(coordinator.cachedStream(key))
     }
+
+    @Test
+    fun safetyMarginRejectsAUrlThatWouldExpireDuringStartup() {
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Expired,
+            cache("https://cdn.example/too-close", nowMs + 10_000L),
+        )
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Stored,
+            cache("https://cdn.example/safe", nowMs + 16_000L),
+        )
+        assertEquals("https://cdn.example/safe", coordinator.cachedStream(key)?.url)
+    }
+
+    @Test
+    fun cachedStreamCarriesResolutionMetadataAndGeneration() {
+        val token = coordinator.resolutionToken(key.mediaId)
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Stored,
+            coordinator.cacheStream(
+                key = key,
+                url = "https://cdn.example/metadata",
+                expiresAtMs = nowMs + 60_000L,
+                token = token,
+                resolvedAtMs = nowMs + 25L,
+                itag = 251,
+                mimeType = "audio/webm",
+                bitrate = 128_000,
+            ),
+        )
+
+        val cached = coordinator.cachedStream(key)
+        assertEquals(25L, cached?.resolvedAtMs?.minus(nowMs))
+        assertEquals(token.generation, cached?.generation)
+        assertEquals(251, cached?.itag)
+        assertEquals("audio/webm", cached?.mimeType)
+        assertEquals(128_000, cached?.bitrate)
+    }
+
+    @Test
+    fun playbackGenerationChangesOnlyForForcedOrNewMediaPlayback() {
+        val initial = coordinator.playbackGeneration()
+        coordinator.beginPlayback("video-id")
+        val first = coordinator.playbackGeneration()
+        coordinator.beginPlayback("video-id")
+        assertEquals(first, coordinator.playbackGeneration())
+        coordinator.beginPlayback("video-id", force = true)
+        assertTrue(coordinator.playbackGeneration() > first)
+        assertTrue(coordinator.playbackGeneration() > initial)
+    }
 }

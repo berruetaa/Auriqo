@@ -265,7 +265,7 @@ fun Thumbnail(
 
     
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
-    val error by playerConnection.error.collectAsState()
+    val error by playerConnection.playbackFailure.collectAsState()
     val queueTitle by playerConnection.queueTitle.collectAsState()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
     val canSkipNext by playerConnection.canSkipNext.collectAsState()
@@ -383,8 +383,8 @@ fun Thumbnail(
         ) {
             error?.let { playbackError ->
                 PlaybackError(
-                    error = playbackError,
-                    retry = playerConnection.player::prepare,
+                    failure = playbackError,
+                    retry = playerConnection::retryCurrentPlayback,
                 )
             }
         }

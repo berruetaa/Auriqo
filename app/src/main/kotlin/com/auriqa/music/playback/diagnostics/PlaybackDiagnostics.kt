@@ -691,6 +691,7 @@ object PlaybackDiagnostics {
     val metrics = PlaybackMetrics()
     private val current = AtomicReference<PlaybackTraceRecorder?>(null)
     private val traces = ConcurrentHashMap<String, PlaybackTraceRecorder>()
+    private val resolutionTraces = ConcurrentHashMap<String, PlaybackTraceRecorder>()
 
     fun startUserRequest(mediaId: String? = null, source: String = "user"): PlaybackTraceRecorder =
         start(mediaId, source).also {
@@ -714,13 +715,38 @@ object PlaybackDiagnostics {
     fun current(): PlaybackTraceRecorder? = current.get()
 
     fun currentFor(mediaId: String?): PlaybackTraceRecorder? {
-        val recorder = current.get() ?: return null
-        return if (mediaId == null || recorder.mediaId == null || recorder.mediaId == mediaId) recorder else null
+        val recorder = current.get()
+        if (recorder != null && (mediaId == null || recorder.mediaId == null || recorder.mediaId == mediaId)) {
+            return recorder
+        }
+        return mediaId?.let(resolutionTraces::get)
     }
 
-    fun transitionTo(mediaId: String?): PlaybackTraceRecorder {
+    /** Creates a bounded trace for an anticipatory resolution without stealing the active trace. */
+    fun startResolution(mediaId: String, source: String = "preload"): PlaybackTraceRecorder {
+        resolutionTraces[mediaId]?.let { return it }
+        if (resolutionTraces.size >= MAX_RESOLUTION_TRACES) {
+            resolutionTraces.keys.firstOrNull()?.let(resolutionTraces::remove)
+        }
+        return PlaybackTraceRecorder(
+            traceId = newPlaybackTraceId(),
+            mediaId = mediaId,
+            buffer = buffer,
+            metrics = metrics,
+            clockNs = System::nanoTime,
+        ).also {
+            resolutionTraces[mediaId] = it
+            it.breadcrumb("RESOLUTION_SCOPE", source)
+        }
+    }
+
+    fun finishResolution(mediaId: String, trace: PlaybackTraceRecorder) {
+        resolutionTraces.remove(mediaId, trace)
+    }
+
+    fun transitionTo(mediaId: String?, force: Boolean = false): PlaybackTraceRecorder {
         val existing = currentFor(mediaId)
-        if (existing != null && existing.mediaId == mediaId) return existing
+        if (!force && existing != null && existing.mediaId == mediaId) return existing
         return start(mediaId, "transition")
     }
 
@@ -729,9 +755,12 @@ object PlaybackDiagnostics {
     fun clear() {
         current.set(null)
         traces.clear()
+        resolutionTraces.clear()
         buffer.clear()
         metrics.clear()
     }
+
+    private const val MAX_RESOLUTION_TRACES = 64
 }
 
 fun newPlaybackTraceId(uuid: UUID = UUID.randomUUID()): String =

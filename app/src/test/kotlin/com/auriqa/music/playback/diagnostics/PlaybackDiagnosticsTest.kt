@@ -177,4 +177,60 @@ class PlaybackDiagnosticsTest {
         assertEquals(1L, snapshot.terminalFailures)
         assertNotNull(snapshot.histograms[PlaybackMetric.RESOLUTION_LATENCY])
     }
+
+    @Test
+    fun debugReportContainsTraceAndRedactsSignedValues() {
+        val failure = PlaybackFailureClassifier.classify(
+            PlaybackFailureInput(
+                traceId = "PB-REPORT01",
+                mediaId = "video-id",
+                stage = PlaybackFailureStage.CDN_HTTP,
+                http = PlaybackHttpDetails(
+                    responseCode = 403,
+                    host = "rr5---sn.example.googlevideo.com",
+                    queryKeys = listOf("expire", "itag", "sig", "pot"),
+                    expireEpoch = 123L,
+                ),
+                media3Code = 2004,
+                media3CodeName = "IO_BAD_HTTP_STATUS",
+                cause = IOException(
+                    "https://rr5---sn.example.googlevideo.com/videoplayback?sig=secret",
+                ),
+                terminalOverride = true,
+            ),
+        )
+        val report = PlaybackDebugReportFormatter.format(
+            failure,
+            PlaybackDebugReportContext(
+                appVersion = "1.0.5",
+                sourceRevision = "abc123",
+                manufacturer = "Acme",
+                model = "Player",
+                androidVersion = "14",
+                api = 34,
+                abi = "arm64-v8a",
+                quality = "OPUS",
+                localOrRemote = "remote",
+                queueIndex = 2,
+                networkType = "wifi",
+                proxyEnabled = false,
+            ),
+            events = listOf(
+                PlaybackDiagnosticEvent.Tap("PB-REPORT01", 0, "video-id", "user"),
+                PlaybackDiagnosticEvent.HttpStatus(
+                    "PB-REPORT01",
+                    250,
+                    "video-id",
+                    failure.let { PlaybackHttpDetails(403, host = it.httpStatus?.toString()) },
+                ),
+            ),
+        )
+
+        assertTrue(report.contains("Trace ID: PB-REPORT01"))
+        assertTrue(report.contains("AURIQO_STREAM_HTTP_403"))
+        assertTrue(report.contains("IO_BAD_HTTP_STATUS (2004)"))
+        assertFalse(report.contains("secret"))
+        assertFalse(report.contains("Cookie"))
+    }
+
 }
