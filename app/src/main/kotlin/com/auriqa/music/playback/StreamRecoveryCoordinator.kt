@@ -31,6 +31,28 @@ internal class StreamRecoveryCoordinator(
         val bitrate: Int? = null,
     )
 
+    /** Redacted state exposed to the debug source set; the signed URL is intentionally absent. */
+    data class DebugStreamEntry(
+        val mediaId: String,
+        val quality: String,
+        val sessionGeneration: Long,
+        val networkGeneration: Long,
+        val expiresInMs: Long,
+        val resolvedAgeMs: Long,
+        val generation: Long,
+        val itag: Int?,
+        val mimeType: String?,
+        val bitrate: Int?,
+    )
+
+    data class DebugSnapshot(
+        val entries: List<DebugStreamEntry>,
+        val activeMediaId: String?,
+        val playbackGeneration: Long,
+        val recoveryInProgressMediaId: String?,
+        val resolutionGenerations: Map<String, Long>,
+    )
+
     /** Whether a completed resolution was accepted into the current generation. */
     enum class CacheWriteResult {
         Stored,
@@ -196,6 +218,31 @@ internal class StreamRecoveryCoordinator(
     }
 
     fun playbackGeneration(): Long = synchronized(lock) { recoveryGeneration }
+
+    internal fun debugSnapshot(): DebugSnapshot = synchronized(lock) {
+        val now = clockMs()
+        val entries = streams.map { (key, stream) ->
+            DebugStreamEntry(
+                mediaId = key.mediaId,
+                quality = key.quality,
+                sessionGeneration = key.sessionGeneration,
+                networkGeneration = key.networkGeneration,
+                expiresInMs = (stream.expiresAtMs - now).coerceAtLeast(0L),
+                resolvedAgeMs = (now - stream.resolvedAtMs).coerceAtLeast(0L),
+                generation = stream.generation,
+                itag = stream.itag,
+                mimeType = stream.mimeType,
+                bitrate = stream.bitrate,
+            )
+        }.sortedWith(compareBy<DebugStreamEntry> { it.mediaId }.thenBy { it.quality })
+        DebugSnapshot(
+            entries = entries,
+            activeMediaId = activeMediaId,
+            playbackGeneration = recoveryGeneration,
+            recoveryInProgressMediaId = recoveryInProgress?.mediaId,
+            resolutionGenerations = resolutionGenerations.toMap(),
+        )
+    }
 
     fun onFailure(
         snapshot: PlaybackSnapshot,

@@ -33,6 +33,12 @@ class AudioFocusController(
     private val setVolume: (Float) -> Unit,
     private val canResume: () -> Boolean,
 ) {
+    data class DebugSnapshot(
+        val hasFocus: Boolean,
+        val lastEvent: String?,
+        val resumeOnGain: Boolean,
+    )
+
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val stateMachine = AudioFocusStateMachine()
     private var resumeJob: Job? = null
@@ -50,6 +56,15 @@ class AudioFocusController(
 
     val hasAudioFocus: Boolean
         get() = stateMachine.state.hasFocus
+
+    val debugSnapshot: DebugSnapshot
+        get() = stateMachine.state.let { state ->
+            DebugSnapshot(
+                hasFocus = state.hasFocus,
+                lastEvent = state.lastEvent?.name,
+                resumeOnGain = state.resumeOnGain,
+            )
+        }
 
     fun request(): Boolean {
         if (hasAudioFocus) return true

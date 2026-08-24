@@ -35,6 +35,7 @@ import com.auriqo.music.playback.diagnostics.PlaybackDiagnostics
 import com.auriqo.music.playback.diagnostics.PlaybackFailureHint
 import com.auriqo.music.playback.diagnostics.PlaybackRedactor
 import com.auriqo.music.playback.diagnostics.PlaybackResolutionException
+import com.auriqo.music.debug.DebugRuntime
 import com.music.innertube.models.IpVersion
 import okhttp3.Dns
 import okhttp3.OkHttpClient
@@ -53,7 +54,8 @@ object YTPlayerUtils {
     private const val logTag = "YTPlayerUtils"
     private const val TAG = "YTPlayerUtils"
 
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+    private val httpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
         .dns(object : Dns {
             override fun lookup(hostname: String): List<InetAddress> {
                 val addresses = Dns.SYSTEM.lookup(hostname)
@@ -82,7 +84,11 @@ object YTPlayerUtils {
         }
         .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .apply {
+            DebugRuntime.currentOrNull()?.networkEventListenerFactory()?.let(::eventListenerFactory)
+        }
         .build()
+    }
 
     private val poTokenGenerator = PoTokenGenerator()
     private val RAW_N_PARAMETER = Regex("[?&]n=[^&]+")

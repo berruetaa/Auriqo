@@ -160,6 +160,9 @@ import com.auriqo.music.models.PersistPlayerState
 import com.auriqo.music.models.PersistQueue
 import com.auriqo.music.models.toMediaMetadata
 import com.auriqo.music.db.entities.BeatInfoEntity
+import com.auriqo.music.debug.DebugFaultPoint
+import com.auriqo.music.debug.DebugFaultSpec
+import com.auriqo.music.debug.DebugRuntime
 import com.auriqo.music.playback.audio.BeatAnalyzer
 import com.auriqo.music.playback.audio.SilenceDetectorAudioProcessor
 import com.auriqo.music.playback.diagnostics.Media3PlaybackDiagnostics
@@ -550,9 +553,17 @@ class MusicService :
     val terminalPlaybackFailure: kotlinx.coroutines.flow.StateFlow<PlaybackFailure?> = _terminalPlaybackFailure.asStateFlow()
     private var lastPlaybackFailure: PlaybackFailure? = null
 
+    /** Redacted playback state for the debug source set; never contains stream URLs. */
+    internal fun debugStreamSnapshot(): StreamRecoveryCoordinator.DebugSnapshot = streamRecovery.debugSnapshot()
+
+    internal fun debugPlaybackGeneration(): Long = streamRecovery.playbackGeneration()
+
+    internal fun debugAudioFocusSnapshot(): AudioFocusController.DebugSnapshot? =
+        if (::audioFocusController.isInitialized) audioFocusController.debugSnapshot else null
+
     /** Reused by every player and cache data source; new TCP/TLS pools are never made per song. */
     private val playbackHttpClient by lazy {
-        OkHttpClient
+        val builder = OkHttpClient
             .Builder()
             .dns(object : Dns {
                 override fun lookup(hostname: String): List<InetAddress> {
@@ -572,7 +583,8 @@ class MusicService :
                         .build()
                 } ?: response.request
             }
-            .build()
+        DebugRuntime.instance.networkEventListenerFactory()?.let(builder::eventListenerFactory)
+        builder.build()
     }
 
     
@@ -3347,16 +3359,19 @@ class MusicService :
         // never call it from the service or UI thread directly.
         return run {
             val playbackData = runBlocking(Dispatchers.IO) {
-                YTPlayerUtils.playerResponseForPlayback(
-                    mediaId,
-                    audioQuality = quality,
-                    connectivityManager = connectivityManager,
-                    context = this@MusicService,
-                    knownArtist = knownArtist,
-                    knownTitle = knownTitle,
-                    knownDurationMs = knownDuration,
-                    excludedItags = excludedFormatItags[mediaId]?.toSet().orEmpty(),
-                )
+                applyDebugResolverFaultIfRequested()
+                DebugRuntime.instance.withNetworkTraceSuspend(PlaybackDiagnostics.currentFor(mediaId)?.traceId) {
+                    YTPlayerUtils.playerResponseForPlayback(
+                        mediaId,
+                        audioQuality = quality,
+                        connectivityManager = connectivityManager,
+                        context = this@MusicService,
+                        knownArtist = knownArtist,
+                        knownTitle = knownTitle,
+                        knownDurationMs = knownDuration,
+                        excludedItags = excludedFormatItags[mediaId]?.toSet().orEmpty(),
+                    )
+                }
             }.getOrElse { throwable ->
                 when (throwable) {
                     is PlaybackException -> throw throwable
@@ -3390,6 +3405,50 @@ class MusicService :
                 }
             }
             requireNotNull(playbackData) { getString(R.string.error_unknown) }
+        }
+    }
+
+    /**
+     * Debug-only fault boundary. It is deliberately centralized here so production playback does
+     * not acquire chaos branches in every resolver/cipher call site.
+     */
+    private fun applyDebugResolverFaultIfRequested() {
+        val fault = DebugRuntime.instance.consumeFault(DebugFaultPoint.PLAYER_RESPONSE) ?: return
+        if (fault.valueMs > 0L) android.os.SystemClock.sleep(fault.valueMs)
+        when (fault.kind) {
+            DebugFaultSpec.Kind.DELAY -> Unit
+            DebugFaultSpec.Kind.RESOLUTION_TIMEOUT -> throw java.net.SocketTimeoutException(
+                "Debug chaos: player response timeout",
+            )
+            DebugFaultSpec.Kind.OFFLINE -> throw java.net.UnknownHostException(
+                "Debug chaos: offline",
+            )
+            DebugFaultSpec.Kind.EXPIRE_STREAM -> throw PlaybackResolutionException(
+                "Debug chaos: expired stream",
+                hint = com.auriqo.music.playback.diagnostics.PlaybackFailureHint.STREAM_URL_EXPIRED,
+            )
+            DebugFaultSpec.Kind.INVALIDATE_EXTRACTOR -> throw PlaybackResolutionException(
+                "Debug chaos: extractor invalidated",
+                hint = com.auriqo.music.playback.diagnostics.PlaybackFailureHint.PLAYER_JS_NOT_FOUND,
+            )
+            DebugFaultSpec.Kind.SIGNATURE_FAILURE -> throw PlaybackResolutionException(
+                "Debug chaos: signature failure",
+                hint = com.auriqo.music.playback.diagnostics.PlaybackFailureHint.SIGNATURE_DECIPHER_FAILED,
+            )
+            DebugFaultSpec.Kind.N_TRANSFORM_FAILURE -> throw PlaybackResolutionException(
+                "Debug chaos: n transform failure",
+                hint = com.auriqo.music.playback.diagnostics.PlaybackFailureHint.N_TRANSFORM_FAILED,
+            )
+            DebugFaultSpec.Kind.POTOKEN_FAILURE -> throw PlaybackResolutionException(
+                "Debug chaos: PoToken failure",
+                hint = com.auriqo.music.playback.diagnostics.PlaybackFailureHint.POTOKEN_FAILED,
+            )
+            DebugFaultSpec.Kind.FORMAT_FAILURE -> throw PlaybackResolutionException(
+                "Debug chaos: selected format failure",
+                hint = com.auriqo.music.playback.diagnostics.PlaybackFailureHint.FORMAT_NOT_FOUND,
+            )
+            DebugFaultSpec.Kind.HTTP_STATUS,
+            DebugFaultSpec.Kind.DATASOURCE_TIMEOUT -> Unit
         }
     }
 
@@ -3441,6 +3500,7 @@ class MusicService :
             if (!shouldBypassCache) {
                 if (isFullyDownloaded) {
                     trace?.breadcrumb("DOWNLOAD_CACHE_HIT", "full")
+                    trace?.breadcrumb("CACHE_ORIGIN", "download")
                     scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
                     return@Factory dataSpec
                 }
@@ -3455,6 +3515,7 @@ class MusicService :
                         cached.itag?.let { selectedFormatItags[mediaId] = it }
                         trace?.resolutionCacheHit(cached.expiresAtMs - System.currentTimeMillis())
                         trace?.streamSelected(cached.itag, cached.mimeType, cached.bitrate)
+                        trace?.breadcrumb("CACHE_ORIGIN", "download")
                         scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
                         return@Factory dataSpec.withUri(cached.url.toUri())
                     }
@@ -3466,6 +3527,8 @@ class MusicService :
                         cached.itag?.let { selectedFormatItags[mediaId] = it }
                         trace?.resolutionCacheHit(cached.expiresAtMs - System.currentTimeMillis())
                         trace?.streamSelected(cached.itag, cached.mimeType, cached.bitrate)
+                        trace?.breadcrumb("CACHE_ORIGIN", "player_preload")
+                        trace?.breadcrumb("FIRST_BYTES_WARMED", CHUNK_LENGTH.toString())
                         scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
                         return@Factory dataSpec.withUri(cached.url.toUri())
                     }
@@ -3477,6 +3540,7 @@ class MusicService :
                     cached.itag?.let { selectedFormatItags[mediaId] = it }
                     trace?.resolutionCacheHit(cached.expiresAtMs - System.currentTimeMillis())
                     trace?.streamSelected(cached.itag, cached.mimeType, cached.bitrate)
+                    trace?.breadcrumb("CACHE_ORIGIN", "stream_resolution")
                     scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
                     return@Factory dataSpec.withUri(cached.url.toUri())
                 }

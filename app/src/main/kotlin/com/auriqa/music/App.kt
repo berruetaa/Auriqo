@@ -27,7 +27,8 @@ import com.auriqo.music.listentogether.ListenTogetherServers
 import com.auriqo.music.utils.CrashHandler
 import com.auriqo.music.utils.cipher.CipherDeobfuscator
 import com.auriqo.music.utils.dataStore
-import com.auriqo.music.utils.debug.DebugLogTree
+import com.auriqo.music.debug.DebugRuntime
+import com.auriqo.music.debug.createDebugRuntime
 import com.auriqo.music.utils.reportException
 import com.music.innertube.YouTube
 import com.music.innertube.YouTubeAccountSession
@@ -88,6 +89,8 @@ class App : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
 
+        DebugRuntime.install(createDebugRuntime())
+
         if (isCrashProcess()) {
             CrashHandler.install(this)
             return
@@ -96,10 +99,7 @@ class App : Application(), SingletonImageLoader.Factory {
         CrashHandler.install(this)
         CipherDeobfuscator.initialize(this)
 
-        if (BuildConfig.DEBUG) {
-            DebugLogTree.install()
-            Timber.plant(Timber.DebugTree())
-        }
+        DebugRuntime.instance.initialize(this)
 
         scheduleUpdateChecks(this)
 

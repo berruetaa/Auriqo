@@ -61,7 +61,6 @@ import com.auriqo.music.ui.screens.settings.integrations.ListenTogetherSettings
 import com.auriqo.music.ui.screens.recognition.RecognitionScreen
 import com.auriqo.music.ui.screens.recognition.RecognitionHistoryScreen
 import com.auriqo.music.ui.screens.settings.UpdateSettings
-import com.auriqo.music.ui.screens.settings.DebugLogScreen
 import com.auriqo.music.echomusic.updater.UpdateScreen
 import com.auriqo.music.utils.rememberEnumPreference
 import com.auriqo.music.utils.rememberPreference
@@ -69,7 +68,7 @@ import com.auriqo.music.echomusic.changelog.ChangelogScreen
 import com.auriqo.music.echomusic.commitscreen.CommitScreen
 import com.auriqo.music.ui.screens.equalizer.axion.AxionEqScreen
 import com.auriqo.music.ui.screens.ambient.AmbientModeScreen
-import com.auriqo.music.BuildConfig
+import com.auriqo.music.debug.DebugRuntime
 
 @OptIn(ExperimentalMaterial3Api::class)
 fun NavGraphBuilder.navigationBuilder(
@@ -503,9 +502,9 @@ fun NavGraphBuilder.navigationBuilder(
         CommitScreen(navController, scrollBehavior)
     }
 
-    if (BuildConfig.DEBUG) {
-        composable("settings/debug_logs") {
-            DebugLogScreen(navController)
-        }
-    }
+    DebugRuntime.instance.registerNavigation(
+        builder = this,
+        navController = navController,
+        scrollBehavior = scrollBehavior,
+    )
 }

@@ -46,6 +46,7 @@ import com.auriqo.music.ui.component.IconButton
 import com.auriqo.music.ui.component.AuriqoBrand
 import com.auriqo.music.ui.component.AuriqoWordmark
 import com.auriqo.music.ui.utils.backToMain
+import com.auriqo.music.debug.DebugRuntime
 
 import androidx.compose.ui.platform.LocalContext
 import android.content.ActivityNotFoundException
@@ -115,6 +116,8 @@ highlightKey: String? = null) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item { AboutAppCard() }
+
+            item { DebugRuntime.instance.AboutEntry(navController) }
 
             item {
                 AboutSectionCard(title = "Developer") {

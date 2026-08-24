@@ -4,6 +4,9 @@ import android.net.Uri
 import androidx.media3.common.PlaybackException
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.HttpDataSource
+import com.auriqo.music.debug.DebugFaultPoint
+import com.auriqo.music.debug.DebugFaultSpec
+import com.auriqo.music.debug.DebugRuntime
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -192,7 +195,30 @@ class PlaybackTracingDataSource(
         trace?.attachMediaId(diagnosticMediaId)
         trace?.dataSourceOpenStart()
         return try {
-            upstream.open(dataSpec).also { trace?.dataSourceOpenEnd(success = true) }
+            val fault = DebugRuntime.instance.consumeFault(DebugFaultPoint.DATASOURCE_OPEN)
+            if (fault != null && fault.valueMs > 0L) {
+                android.os.SystemClock.sleep(fault.valueMs)
+            }
+            when (fault?.kind) {
+                DebugFaultSpec.Kind.HTTP_STATUS -> throw HttpDataSource.InvalidResponseCodeException(
+                    fault.httpStatus ?: 403,
+                    "Debug chaos HTTP ${fault.httpStatus ?: 403}",
+                    null,
+                    emptyMap<String, List<String>>(),
+                    dataSpec,
+                    byteArrayOf(),
+                )
+                DebugFaultSpec.Kind.DATASOURCE_TIMEOUT -> throw SocketTimeoutException(
+                    "Debug chaos: DataSource timeout",
+                )
+                DebugFaultSpec.Kind.OFFLINE -> throw UnknownHostException(
+                    "Debug chaos: offline",
+                )
+                else -> Unit
+            }
+            DebugRuntime.instance.withNetworkTrace(trace?.traceId) {
+                upstream.open(dataSpec)
+            }.also { trace?.dataSourceOpenEnd(success = true) }
         } catch (error: Throwable) {
             trace?.let {
                 Media3PlaybackDiagnostics.findHttpDetails(error)?.let(it::httpStatus)

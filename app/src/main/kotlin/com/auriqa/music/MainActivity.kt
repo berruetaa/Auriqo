@@ -208,6 +208,7 @@ import com.auriqo.music.ui.theme.auriqoTheme
 import com.auriqo.music.ui.theme.extractThemeColor
 import com.auriqo.music.ui.utils.appBarScrollBehavior
 import com.auriqo.music.ui.utils.resetHeightOffset
+import com.auriqo.music.debug.DebugRuntime
 import com.auriqo.music.utils.SyncUtils
 import com.auriqo.music.utils.dataStore
 import com.auriqo.music.utils.read
@@ -263,6 +264,7 @@ class MainActivity : ComponentActivity() {
                 try {
                     playerConnection = PlayerConnection(this@MainActivity, service, database, lifecycleScope)
                     Timber.tag("MainActivity").d("PlayerConnection created successfully")
+                    DebugRuntime.instance.onPlayerConnectionChanged(playerConnection)
                     
                     listenTogetherManager.setPlayerConnection(playerConnection)
                 } catch (e: Exception) {
@@ -272,6 +274,7 @@ class MainActivity : ComponentActivity() {
                         delay(500)
                         try {
                             playerConnection = PlayerConnection(this@MainActivity, service, database, lifecycleScope)
+                            DebugRuntime.instance.onPlayerConnectionChanged(playerConnection)
                             listenTogetherManager.setPlayerConnection(playerConnection)
                         } catch (e2: Exception) {
                             Timber.tag("MainActivity").e(e2, "Failed to create PlayerConnection on retry")
@@ -284,6 +287,7 @@ class MainActivity : ComponentActivity() {
         override fun onServiceDisconnected(name: ComponentName?) {
             
             listenTogetherManager.setPlayerConnection(null)
+            DebugRuntime.instance.onPlayerConnectionChanged(null)
             playerConnection?.dispose()
             playerConnection = null
         }
@@ -1348,6 +1352,8 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
+
+                    DebugRuntime.instance.Overlay(navController)
 
                 }
             }
