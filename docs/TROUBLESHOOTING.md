@@ -17,6 +17,12 @@ variant, Android version, device, exact steps and a short redacted log excerpt i
 - Check the network and retry after a short delay; YouTube may rate-limit or rotate player scripts.
 - Try the FOSS build if the failure is in Cast, Firebase or another GMS-only integration.
 - Record whether metadata loads but playback fails, or whether the page itself fails to parse.
+- On the playback error panel, use **Copy debug report**. Include the Trace ID and the full
+  redacted report; it contains the Auriqo code, original Media3 code, HTTP/playability evidence,
+  timing, cause chain, recovery attempts and recent trace breadcrumbs.
+- A recoverable 403/410/429, expired stream, extractor/cipher failure or transient network loss
+  is retried automatically. The panel appears only for an explicit permanent failure or after the
+  bounded recovery budget is exhausted.
 
 ## Lyrics are missing or out of sync
 
@@ -49,6 +55,6 @@ variant, Android version, device, exact steps and a short redacted log excerpt i
 ## What to include in a report
 
 Include the stable/debug version, FOSS/GMS variant, device model, Android version, reproduction
-steps, expected result, actual result and redacted logs. Never include cookies, OAuth tokens,
-API keys, signing details or private playlist URLs. Security-sensitive reports belong in
+steps, expected result, actual result and the copied Auriqo Playback Diagnostic. Never include
+cookies, OAuth tokens, API keys, signing details or private playlist URLs. Security-sensitive reports belong in
 [SECURITY.md](../SECURITY.md), not a public issue.
