@@ -724,7 +724,7 @@ object YTPlayerUtils {
                     error.cause?.message?.contains("age-restricted", ignoreCase = true) == true
                 if (isAgeRestricted) {
                     Timber.tag(logTag).d("Age-restricted content detected from NewPipe")
-                    Log.i(TAG, "Age-restricted detected early via NewPipe: videoId=$videoId")
+                    Timber.tag(logTag).i("Age-restricted detected early via NewPipe: videoId=%s", videoId)
                 } else {
                     Timber.tag(logTag).e("Failed to get signature timestamp type=${error::class.java.simpleName}")
                 }

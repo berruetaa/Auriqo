@@ -2271,6 +2271,7 @@ class MusicService :
         when (playbackState) {
             Player.STATE_BUFFERING -> trace?.buffering()
             Player.STATE_READY -> trace?.ready()
+            Player.STATE_ENDED, Player.STATE_IDLE -> Unit
         }
 
         
@@ -2780,9 +2781,13 @@ class MusicService :
             }
         }
         Timber.tag("PlaybackTrace").w(
-            "[${trace.traceId}] PLAYER_ERROR mediaId=${PlaybackRedactor.sanitizeScalar(mediaId)} " +
-                "media3=${Media3PlaybackDiagnostics.errorCodeName(error.errorCode)}(${error.errorCode}) " +
-                "type=${error::class.java.simpleName} message=${PlaybackRedactor.sanitizeText(error.message.orEmpty())}",
+            "[%s] PLAYER_ERROR mediaId=%s media3=%s(%d) type=%s message=%s",
+            trace.traceId,
+            PlaybackRedactor.sanitizeScalar(mediaId),
+            Media3PlaybackDiagnostics.errorCodeName(error.errorCode),
+            error.errorCode,
+            error::class.java.simpleName,
+            PlaybackRedactor.sanitizeText(error.message.orEmpty()),
         )
         when {
             isAudioRendererError(error) -> {
