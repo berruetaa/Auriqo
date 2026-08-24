@@ -11,7 +11,6 @@ import android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
 import android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
 import android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
 import android.media.AudioManager.OnAudioFocusChangeListener
-import androidx.annotation.RequiresApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -23,7 +22,6 @@ import kotlinx.coroutines.launch
  * [AudioFocusStateMachine] decides what a focus event means. This class owns the AudioManager
  * request and translates the resulting actions into player callbacks supplied by MusicService.
  */
-@RequiresApi(26)
 class AudioFocusController(
     context: Context,
     private val scope: CoroutineScope,

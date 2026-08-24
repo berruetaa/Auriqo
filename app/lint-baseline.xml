@@ -19653,17 +19653,6 @@
     <issue
         id="ObsoleteSdkInt"
         message="Unnecessary; `SDK_INT` is always >= 26"
-        errorLine1="@RequiresApi(26)"
-        errorLine2="~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/kotlin/com/auriqa/music/playback/AudioFocusController.kt"
-            line="26"
-            column="1"/>
-    </issue>
-
-    <issue
-        id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 26"
         errorLine1="    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {"
         errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
