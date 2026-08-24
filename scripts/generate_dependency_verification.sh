@@ -14,6 +14,7 @@ cd "$ROOT_DIR"
   :app:assembleUniversalFossDebug \
   :app:assembleUniversalGmsDebug \
   :app:testUniversalFossDebugUnitTest \
+  :app:lintUniversalFossDebug \
   :betterlyrics:testDebugUnitTest \
   :unison:test \
   :wear:testDebugUnitTest \
