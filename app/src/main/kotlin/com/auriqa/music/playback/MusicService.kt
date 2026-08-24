@@ -2991,6 +2991,13 @@ class MusicService :
         return requireNotNull(playbackData) { getString(R.string.error_unknown) }
     }
 
+    private fun scheduleFormatPersistence(format: FormatEntity) {
+        scope.launch(Dispatchers.IO) {
+            runCatching { database.upsert(format) }
+                .onFailure { reportException(it) }
+        }
+    }
+
     private fun createDataSourceFactory(): DataSource.Factory {
         return ResolvingDataSource.Factory(
             DefaultDataSource.Factory(this, createCacheDataSource())
@@ -3118,22 +3125,24 @@ class MusicService :
                 }
 
                 if (!isFullyDownloaded || targetCacheKey == mediaId) {
-                    database.query {
-                        upsert(
-                            FormatEntity(
-                                id = mediaId,
-                                itag = format.itag,
-                                mimeType = format.mimeType.split(";")[0],
-                                codecs = format.mimeType.substringAfter("codecs=", "\"\"").substringBefore(";").removeSurrounding("\"").takeIf { it.isNotEmpty() } ?: "unknown",
-                                bitrate = format.bitrate,
-                                sampleRate = format.audioSampleRate,
-                                contentLength = format.contentLength ?: 0L,
-                                loudnessDb = loudnessDb,
-                                perceptualLoudnessDb = perceptualLoudnessDb,
-                                playbackUrl = nonNullPlayback.playbackTracking?.videostatsPlaybackUrl?.baseUrl
-                            )
-                        )
-                    }
+                    scheduleFormatPersistence(
+                        FormatEntity(
+                            id = mediaId,
+                            itag = format.itag,
+                            mimeType = format.mimeType.split(";")[0],
+                            codecs = format.mimeType.substringAfter("codecs=", "\"\"")
+                                .substringBefore(";")
+                                .removeSurrounding("\"")
+                                .takeIf { it.isNotEmpty() }
+                                ?: "unknown",
+                            bitrate = format.bitrate,
+                            sampleRate = format.audioSampleRate,
+                            contentLength = format.contentLength ?: 0L,
+                            loudnessDb = loudnessDb,
+                            perceptualLoudnessDb = perceptualLoudnessDb,
+                            playbackUrl = nonNullPlayback.playbackTracking?.videostatsPlaybackUrl?.baseUrl,
+                        ),
+                    )
                 }
                 scope.launch(Dispatchers.IO) { recoverSong(mediaId, nonNullPlayback) }
 
