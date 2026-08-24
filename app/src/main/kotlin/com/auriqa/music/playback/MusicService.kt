@@ -2882,9 +2882,11 @@ class MusicService :
         }
     }
 
-    private fun currentPresenceSong(): Song? {
-        val mediaId = player.currentMediaItem?.mediaId ?: return null
-        return runBlocking(Dispatchers.IO) { database.song(mediaId).firstOrNull() }
+    private suspend fun currentPresenceSong(): Song? {
+        val mediaId = withContext(Dispatchers.Main.immediate) {
+            player.currentMediaItem?.mediaId
+        } ?: return null
+        return database.song(mediaId).firstOrNull()
     }
 
     private fun ensurePresenceManager() {

@@ -35,6 +35,7 @@ import com.auriqo.music.di.PlayerCache
 import com.auriqo.music.ui.utils.resize
 import com.auriqo.music.utils.YTPlayerUtils
 import com.auriqo.music.utils.dataStore
+import com.auriqo.music.utils.reportException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -59,7 +60,7 @@ import javax.inject.Singleton
 class DownloadUtil
 @Inject
 constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
     val database: MusicDatabase,
     val databaseProvider: DatabaseProvider,
     @DownloadCache val downloadCache: SimpleCache,
@@ -81,6 +82,66 @@ constructor(
                 ipVersion.value = preferences[IpVersionKey]
                     ?.let { IpVersion.entries.firstOrNull { value -> value.name == it } }
                     ?: IpVersion.AUTO
+            }
+        }
+    }
+
+    private fun scheduleDownloadMetadataPersistence(
+        mediaId: String,
+        playbackData: YTPlayerUtils.PlaybackData,
+    ) {
+        scope.launch(Dispatchers.IO) {
+            var thumbnailUrl: String? = null
+            val persisted = runCatching {
+                database.withTransaction {
+                    val format = playbackData.format
+                    upsert(
+                        FormatEntity(
+                            id = mediaId,
+                            itag = format.itag,
+                            mimeType = format.mimeType.split(";")[0],
+                            codecs = format.mimeType.split("codecs=").getOrNull(1)?.removeSurrounding("\"") ?: "opus",
+                            bitrate = format.bitrate,
+                            sampleRate = format.audioSampleRate,
+                            contentLength = format.contentLength ?: 0L,
+                            loudnessDb = playbackData.audioConfig?.loudnessDb,
+                            perceptualLoudnessDb = playbackData.audioConfig?.perceptualLoudnessDb,
+                            playbackUrl = playbackData.playbackTracking?.videostatsPlaybackUrl?.baseUrl,
+                        ),
+                    )
+
+                    val now = LocalDateTime.now()
+                    val existing = getSongByIdBlocking(mediaId)?.song
+                    val updatedSong = if (existing != null) {
+                        existing.copy(
+                            dateDownload = existing.dateDownload ?: now,
+                            thumbnailUrl = existing.thumbnailUrl
+                                ?: playbackData.videoDetails?.thumbnail?.thumbnails?.lastOrNull()?.url?.resize(1200, 1200),
+                        )
+                    } else {
+                        SongEntity(
+                            id = mediaId,
+                            title = playbackData.videoDetails?.title ?: "Unknown",
+                            duration = playbackData.videoDetails?.lengthSeconds?.toIntOrNull() ?: 0,
+                            thumbnailUrl = playbackData.videoDetails?.thumbnail?.thumbnails?.lastOrNull()?.url?.resize(1200, 1200),
+                            dateDownload = now,
+                            isDownloaded = false,
+                        )
+                    }
+
+                    upsert(updatedSong)
+                    thumbnailUrl = updatedSong.thumbnailUrl
+                }
+            }.onFailure { reportException(it) }.isSuccess
+
+            if (!persisted) return@launch
+            thumbnailUrl?.let { url ->
+                val request = ImageRequest.Builder(context)
+                    .data(url)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build()
+                SingletonImageLoader.get(context).enqueue(request)
             }
         }
     }
@@ -129,55 +190,7 @@ constructor(
                     isDownload = true
                 )
             }.getOrThrow()
-            val format = playbackData.format
-
-            database.query {
-                upsert(
-                    FormatEntity(
-                        id = mediaId,
-                        itag = format.itag,
-                        mimeType = format.mimeType.split(";")[0],
-                        codecs = format.mimeType.split("codecs=").getOrNull(1)?.removeSurrounding("\"") ?: "opus",
-                        bitrate = format.bitrate,
-                        sampleRate = format.audioSampleRate,
-                        contentLength = format.contentLength ?: 0L,
-                        loudnessDb = playbackData.audioConfig?.loudnessDb,
-                        perceptualLoudnessDb = playbackData.audioConfig?.perceptualLoudnessDb,
-                        playbackUrl = playbackData.playbackTracking?.videostatsPlaybackUrl?.baseUrl
-                    ),
-                )
-
-                val now = LocalDateTime.now()
-                val existing = getSongByIdBlocking(mediaId)?.song
-
-                val updatedSong = if (existing != null) {
-                    existing.copy(
-                        dateDownload = existing.dateDownload ?: now,
-                        thumbnailUrl = existing.thumbnailUrl ?: playbackData.videoDetails?.thumbnail?.thumbnails?.lastOrNull()?.url?.resize(1200, 1200)
-                    )
-                } else {
-                    SongEntity(
-                        id = mediaId,
-                        title = playbackData.videoDetails?.title ?: "Unknown",
-                        duration = playbackData.videoDetails?.lengthSeconds?.toIntOrNull() ?: 0,
-                        thumbnailUrl = playbackData.videoDetails?.thumbnail?.thumbnails?.lastOrNull()?.url?.resize(1200, 1200),
-                        dateDownload = now,
-                        isDownloaded = false
-                    )
-                }
-
-                upsert(updatedSong)
-
-                
-                updatedSong.thumbnailUrl?.let { url ->
-                    val request = ImageRequest.Builder(context)
-                        .data(url)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .build()
-                    SingletonImageLoader.get(context).enqueue(request)
-                }
-            }
+            scheduleDownloadMetadataPersistence(mediaId, playbackData)
 
             val streamUrl = playbackData.streamUrl
 

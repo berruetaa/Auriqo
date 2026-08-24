@@ -47,7 +47,7 @@ object DiscordPresenceManager {
 
     private var lastStartContext: Context? = null
     private var lastToken: String? = null
-    private var lastSongProvider: (() -> Song?)? = null
+    private var lastSongProvider: (suspend () -> Song?)? = null
     private var lastPositionProvider: (() -> Long)? = null
     private var lastIsPausedProvider: (() -> Boolean)? = null
     private var consecutiveFailures = 0
@@ -180,7 +180,7 @@ object DiscordPresenceManager {
     fun start(
         context: Context,
         token: String,
-        songProvider: () -> Song?,
+        songProvider: suspend () -> Song?,
         positionProvider: () -> Long,
         isPausedProvider: () -> Boolean,
     ) {
@@ -300,10 +300,10 @@ object DiscordPresenceManager {
         refreshJob =
             activeScope.launch {
                 try {
-                    val (song, positionMs, isPaused) =
-                        withContext(Dispatchers.Main.immediate) {
-                            Triple(songProvider(), positionProvider(), isPausedProvider())
-                        }
+                    val song = songProvider()
+                    val (positionMs, isPaused) = withContext(Dispatchers.Main.immediate) {
+                        positionProvider() to isPausedProvider()
+                    }
                     updatePresence(
                         context = context,
                         token = token,

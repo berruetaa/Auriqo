@@ -23,14 +23,12 @@ import com.auriqo.music.playback.MusicService.Companion.PERSISTENT_QUEUE_FILE
 import com.auriqo.music.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewModelScope
 import timber.log.Timber
 import java.io.FileInputStream
