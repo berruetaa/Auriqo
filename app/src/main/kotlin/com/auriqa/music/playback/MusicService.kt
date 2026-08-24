@@ -2344,7 +2344,7 @@ class MusicService :
         ) {
             prepareAutomixForCurrentPair()
             scheduleCrossfade()
-        val isBufferingOrReady =
+            val isBufferingOrReady =
                 player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_READY
             if (isBufferingOrReady && player.playWhenReady) {
                 val focusGranted = audioFocusController.request()
