@@ -385,4 +385,22 @@ class StreamRecoveryCoordinatorTest {
 
         assertTrue(!coordinator.isCurrentRecovery(decision.token))
     }
+
+    @Test
+    fun alternateFormatRecoveryIsBoundedToOneFreshAttempt() {
+        coordinator.beginPlayback(snapshot.mediaId, force = true)
+        val first = coordinator.onFailure(
+            snapshot,
+            StreamRecoveryCoordinator.FailureKind.AlternateFormat,
+        ) as StreamRecoveryCoordinator.RecoveryDecision.Recover
+        coordinator.completeRecovery(first.token)
+
+        assertEquals(
+            StreamRecoveryCoordinator.RecoveryDecision.Exhausted,
+            coordinator.onFailure(
+                snapshot,
+                StreamRecoveryCoordinator.FailureKind.AlternateFormat,
+            ),
+        )
+    }
 }

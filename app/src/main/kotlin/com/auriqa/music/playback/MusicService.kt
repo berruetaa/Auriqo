@@ -803,6 +803,10 @@ class MusicService :
                 if (lastNetworkConnected != null && lastNetworkConnected != isConnected) {
                     streamNetworkGeneration++
                     preloadJob?.cancel()
+                    // Route changes can invalidate signed CDN URLs. Discard look-ahead
+                    // resolutions while retaining the current item until it actually needs a
+                    // re-open; downloaded bytes remain in their separate cache.
+                    streamRecovery.retainOnly(player.currentMediaItem?.mediaId)
                 }
                 lastNetworkConnected = isConnected
                 isNetworkConnected.value = isConnected
@@ -2344,7 +2348,7 @@ class MusicService :
         }
 
         
-        if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
+        if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED)) {
             updateWidgetUI(player.isPlaying)
             if (player.isPlaying) {
                 if (player.playbackState == Player.STATE_READY) {
