@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.auriqo.music.BuildConfig
 import com.auriqo.music.R
+import com.music.innertube.YouTube
 import com.auriqo.music.playback.diagnostics.PlaybackDebugReportContext
 import com.auriqo.music.playback.diagnostics.PlaybackDebugReportFormatter
 import com.auriqo.music.playback.diagnostics.PlaybackFailure
@@ -60,6 +61,7 @@ fun PlaybackError(
                 quality = null,
                 localOrRemote = failure.cacheStatus,
                 networkType = failure.networkType,
+                proxyEnabled = YouTube.proxy != null,
             ),
         )
     }

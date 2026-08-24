@@ -230,6 +230,8 @@ class PlaybackDiagnosticsTest {
                 ),
                 media3Code = 2004,
                 media3CodeName = "IO_BAD_HTTP_STATUS",
+                quality = "AAC",
+                queueIndex = 7,
                 cause = IOException(
                     "https://rr5---sn.example.googlevideo.com/videoplayback?sig=secret",
                 ),
@@ -246,9 +248,9 @@ class PlaybackDiagnosticsTest {
                 androidVersion = "14",
                 api = 34,
                 abi = "arm64-v8a",
-                quality = "OPUS",
+                quality = null,
                 localOrRemote = "remote",
-                queueIndex = 2,
+                queueIndex = null,
                 networkType = "wifi",
                 proxyEnabled = false,
             ),
@@ -266,6 +268,9 @@ class PlaybackDiagnosticsTest {
         assertTrue(report.contains("Trace ID: PB-REPORT01"))
         assertTrue(report.contains("AURIQO_STREAM_HTTP_403"))
         assertTrue(report.contains("IO_BAD_HTTP_STATUS (2004)"))
+        assertTrue(report.contains("quality=AAC"))
+        assertTrue(report.contains("queueIndex=7"))
+        assertTrue(report.contains("proxyEnabled=false"))
         assertFalse(report.contains("secret"))
         assertFalse(report.contains("Cookie"))
     }

@@ -2616,6 +2616,8 @@ class MusicService :
                 maxAttempts = maxAttempts,
                 streamGeneration = streamRecovery.playbackGeneration(),
                 cacheStatus = if (mediaId?.isLocalMediaId() == true) "local" else "remote",
+                quality = if (::audioQuality.isInitialized) audioQuality.name else null,
+                queueIndex = player.currentMediaItemIndex.takeIf { it != C.INDEX_UNSET },
                 networkType = playbackNetworkType(),
                 terminalOverride = terminalOverride,
             ),

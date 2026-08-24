@@ -19,6 +19,8 @@ object Media3PlaybackDiagnostics {
         maxAttempts: Int = 0,
         streamGeneration: Long? = null,
         cacheStatus: String? = null,
+        quality: String? = null,
+        queueIndex: Int? = null,
         networkType: String? = null,
         terminalOverride: Boolean? = null,
     ): PlaybackFailureInput {
@@ -39,6 +41,8 @@ object Media3PlaybackDiagnostics {
             maxAttempts = maxAttempts,
             streamGeneration = streamGeneration,
             cacheStatus = cacheStatus,
+            quality = quality,
+            queueIndex = queueIndex,
             networkType = networkType,
             terminalOverride = terminalOverride,
         )
@@ -165,7 +169,7 @@ object Media3PlaybackDiagnostics {
         repeat(16) {
             if (current == null || !seen.add(current)) return null
             if (current is T) return current
-            current = current?.cause
+            current = current.cause
         }
         return null
     }
