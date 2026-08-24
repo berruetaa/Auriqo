@@ -37,7 +37,8 @@ import com.auriqo.music.utils.debug.DebugLogTree
 fun DebugLogScreen(navController: NavController) {
     val context = LocalContext.current
     val tree = DebugLogTree.getInstance()
-    val logs by tree?.logs?.collectAsState() ?: androidx.compose.runtime.mutableStateOf(emptyList())
+    val logsState = tree?.logs?.collectAsState()
+    val logs = logsState?.value.orEmpty()
     Scaffold(
         topBar = {
             TopAppBar(

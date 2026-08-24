@@ -1,6 +1,7 @@
 package com.auriqo.music.debug
 
 import android.content.Context
+import androidx.core.content.edit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -30,7 +31,7 @@ internal object DebugPreferenceStore {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(key, default)
 
     fun setBoolean(context: Context, key: String, value: Boolean) {
-        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(key, value).apply()
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit { putBoolean(key, value) }
     }
 }
 

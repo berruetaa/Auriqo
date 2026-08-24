@@ -4,9 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.media.AudioManager
 import android.net.ConnectivityManager
-import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -744,9 +744,8 @@ private fun runtimeSnapshot(context: Context, connection: PlayerConnection, trac
             ?.getTrackFormat(0)
         val audioFocus = service.debugAudioFocusSnapshot()
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val outputs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).joinToString(",") { it.productName?.toString().orEmpty().ifBlank { it.type.toString() } }
-        } else "legacy"
+        val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .joinToString(",") { it.productName?.toString().orEmpty().ifBlank { it.type.toString() } }
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
         val network = when {
