@@ -8,17 +8,8 @@ import android.util.Log
 import com.music.innertube.NewPipeExtractor
 import com.music.innertube.YouTube
 import com.music.innertube.models.YouTubeClient
-import com.music.innertube.models.YouTubeClient.Companion.ANDROID_CREATOR
 import com.auriqo.music.utils.BotDetectionMitigator
-import com.music.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_43_32
-import com.music.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_61_48
-import com.music.innertube.models.YouTubeClient.Companion.ANDROID_VR_NO_AUTH
-import com.music.innertube.models.YouTubeClient.Companion.IOS
-import com.music.innertube.models.YouTubeClient.Companion.IPADOS
-import com.music.innertube.models.YouTubeClient.Companion.MOBILE
-import com.music.innertube.models.YouTubeClient.Companion.TVHTML5
-import com.music.innertube.models.YouTubeClient.Companion.TVHTML5_SIMPLY_EMBEDDED_PLAYER
-import com.music.innertube.models.YouTubeClient.Companion.WEB
+import com.music.innertube.models.YouTubeClient.Companion.VISIONOS
 import com.music.innertube.models.YouTubeClient.Companion.WEB_CREATOR
 import com.music.innertube.models.YouTubeClient.Companion.WEB_REMIX
 import com.music.innertube.models.response.PlayerResponse
@@ -94,23 +85,15 @@ object YTPlayerUtils {
     private val RAW_N_PARAMETER = Regex("[?&]n=[^&]+")
 
     
-    private val MAIN_CLIENT: YouTubeClient = ANDROID_VR_1_43_32
+    private val MAIN_CLIENT: YouTubeClient = VISIONOS
 
     
     private val METADATA_CLIENT: YouTubeClient = WEB_REMIX
 
+    // Keep fallback policy capability-driven. Auriqo can generate Web BotGuard/GVS tokens,
+    // but it does not implement Android DroidGuard or iOSGuard attestation.
     private val STREAM_FALLBACK_CLIENTS: Array<YouTubeClient> = arrayOf(
-        ANDROID_VR_1_61_48,
         WEB_REMIX,
-        TVHTML5_SIMPLY_EMBEDDED_PLAYER,  
-        TVHTML5,
-        ANDROID_CREATOR,
-        IPADOS,
-        ANDROID_VR_NO_AUTH,
-        MOBILE,
-        IOS,
-        WEB,
-        WEB_CREATOR
     )
     data class PlaybackData(
         val audioConfig: PlayerResponse.PlayerConfig.AudioConfig?,
@@ -336,7 +319,7 @@ object YTPlayerUtils {
         
         
         val startIndex = when {
-            isPrivateTrack -> 1  
+            isPrivateTrack -> 0
             isAgeRestricted -> 0
             else -> -1
         }
@@ -492,14 +475,13 @@ object YTPlayerUtils {
                 
                 val isPrivatelyOwned = streamPlayerResponse.videoDetails?.musicVideoType == "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
 
-                if (clientIndex == STREAM_FALLBACK_CLIENTS.size - 1 || isPrivatelyOwned) {
-                    
-                    if (isPrivatelyOwned) {
-                        Timber.tag(logTag).d("Skipping validation for privately owned track: ${currentClient.clientName}")
-                    } else {
-                        Timber.tag(logTag).d("Using last fallback client without validation: ${STREAM_FALLBACK_CLIENTS[clientIndex].clientName}")
-                    }
-                    Log.i(TAG, "Playback: client=${currentClient.clientName}, videoId=$videoId, private=$isPrivatelyOwned")
+                if (isPrivatelyOwned) {
+                    Timber.tag(logTag).d("Skipping validation for privately owned track: ${currentClient.clientName}")
+                    PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                        "STREAM_CLIENT_SELECTED",
+                        "${currentClient.clientName}/${currentClient.clientVersion} private=true",
+                    )
+                    Log.i(TAG, "Playback: client=${currentClient.clientName}, videoId=$videoId, private=true")
                     break
                 }
 
@@ -510,12 +492,20 @@ object YTPlayerUtils {
                     // player boundary below. Fallback clients still use validation to choose a
                     // viable candidate before spending another resolution attempt.
                     PlaybackDiagnostics.currentFor(videoId)?.breadcrumb("STREAM_VALIDATION_SKIPPED", "main_client")
+                    PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                        "STREAM_CLIENT_SELECTED",
+                        "${currentClient.clientName}/${currentClient.clientVersion} validation=media3",
+                    )
                     Log.i(TAG, "Playback: client=${currentClient.clientName}, videoId=$videoId (validation deferred to Media3)")
                     break
                 }
 
-                if (validateStatus(streamUrl!!)) {
+                if (validateStatus(streamUrl!!, currentClient)) {
                     
+                    PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                        "STREAM_CLIENT_SELECTED",
+                        "${currentClient.clientName}/${currentClient.clientVersion} validation=range_get",
+                    )
                     Timber.tag(logTag).d("Stream validated successfully with client: ${currentClient.clientName}")
                     PlaybackLogManager.log(PlaybackLogLevel.INFO, "Stream validated", currentClient.clientName)
                     
@@ -535,7 +525,7 @@ object YTPlayerUtils {
                                 val fallbackStreamUrl =
                                     appendStreamingPoToken(nTransformed, streamingPoToken)
                                 Timber.tag(logTag).d("CipherDeobfuscator n-transform applied, re-validating...")
-                                if (validateStatus(fallbackStreamUrl)) {
+                                if (validateStatus(fallbackStreamUrl, currentClient)) {
                                     Timber.tag(logTag).d("N-transformed URL VALIDATED OK!")
                                     streamUrl = fallbackStreamUrl
                                     nTransformWorked = true
@@ -664,13 +654,14 @@ object YTPlayerUtils {
         return format
     }
     
-    private fun validateStatus(url: String): Boolean {
+    private fun validateStatus(url: String, client: YouTubeClient): Boolean {
         Timber.tag(logTag).d("Validating stream URL status")
         try {
             val requestBuilder = okhttp3.Request.Builder()
-                .head()
+                .get()
                 .url(url)
-                .header("User-Agent", YouTubeClient.USER_AGENT_WEB)
+                .header("Range", "bytes=0-0")
+                .header("User-Agent", client.userAgent)
 
             
             YouTube.cookie?.let { cookie ->
