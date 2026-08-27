@@ -247,7 +247,15 @@ object YTPlayerUtils {
                 MAIN_CLIENT,
                 signatureTimestampFor(MAIN_CLIENT),
                 mainPlayerPoToken,
-            ).getOrThrow()
+            ).onFailure { error ->
+                PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                    "PRIMARY_PLAYER_REQUEST_FAILED",
+                    "client=${MAIN_CLIENT.clientName} type=${error::class.simpleName}",
+                )
+                Timber.tag(logTag).w(
+                    "Primary player request failed for ${MAIN_CLIENT.clientName}; trying supported fallback",
+                )
+            }.getOrNull()
         } else {
             PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
                 "PRIMARY_PLAYER_REQUEST_SKIPPED",
@@ -259,14 +267,17 @@ object YTPlayerUtils {
         val wasOriginallyAgeRestricted: Boolean
 
         val mainStatus = mainPlayerResponse?.playabilityStatus?.status
-        val isAgeRestrictedFromResponse = mainStatus in listOf(
-            "AGE_CHECK_REQUIRED",
-            "AGE_VERIFICATION_REQUIRED",
-            "CONTENT_CHECK_REQUIRED"
-        ) || (
-            mainStatus == "LOGIN_REQUIRED" &&
-                mainPlayerResponse?.playabilityStatus?.reason?.contains("age", ignoreCase = true) == true
-        )
+        val isAgeRestrictedFromResponse =
+            mainStatus == "AGE_CHECK_REQUIRED" ||
+                mainStatus == "AGE_VERIFICATION_REQUIRED" ||
+                mainStatus == "CONTENT_CHECK_REQUIRED" ||
+                (
+                    mainStatus == "LOGIN_REQUIRED" &&
+                        mainPlayerResponse?.playabilityStatus?.reason?.contains(
+                            "age",
+                            ignoreCase = true,
+                        ) == true
+                )
         wasOriginallyAgeRestricted = isAgeRestrictedFromResponse
 
         if (isAgeRestrictedFromResponse && isLoggedIn) {
@@ -330,13 +341,13 @@ object YTPlayerUtils {
 
         
         val currentStatus = mainPlayerResponse?.playabilityStatus?.status
-        val needsFallbackFromPlayability = currentStatus in listOf(
-            "AGE_CHECK_REQUIRED",
-            "AGE_VERIFICATION_REQUIRED",
-            "CONTENT_CHECK_REQUIRED",
-            "UNPLAYABLE",
-            "LOGIN_REQUIRED"
-        )
+        val needsFallbackFromPlayability =
+            currentStatus == null ||
+                currentStatus == "AGE_CHECK_REQUIRED" ||
+                currentStatus == "AGE_VERIFICATION_REQUIRED" ||
+                currentStatus == "CONTENT_CHECK_REQUIRED" ||
+                currentStatus == "UNPLAYABLE" ||
+                currentStatus == "LOGIN_REQUIRED"
 
         if (needsFallbackFromPlayability) {
             Timber.tag(logTag).d("Content needs fallback (status: $currentStatus)")

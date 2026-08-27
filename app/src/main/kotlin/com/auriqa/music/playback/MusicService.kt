@@ -395,7 +395,6 @@ class MusicService :
     lateinit var connectivityObserver: NetworkConnectivityObserver
     val waitingForNetworkConnection = MutableStateFlow(false)
     private val isNetworkConnected = MutableStateFlow(false)
-    private var lastNetworkConnected: Boolean? = null
     @Volatile
     private var streamNetworkGeneration = 0L
 
@@ -859,7 +858,6 @@ class MusicService :
 
         scope.launch {
             connectivityObserver.networkStatus.collect { isConnected ->
-                lastNetworkConnected = isConnected
                 isNetworkConnected.value = isConnected
                 PlaybackDiagnostics.current()?.networkChanged(
                     connected = isConnected,
