@@ -153,9 +153,10 @@ data class PlaybackDebugState(
     val traces: List<DebugTraceSnapshot> = emptyList(),
     val metrics: DebugSessionMetrics = DebugSessionMetrics.empty(),
     val rawMetrics: PlaybackMetricsSnapshot = PlaybackDiagnostics.metrics.snapshot(),
+    val activeTraceId: String? = null,
 ) {
     val activeTrace: DebugTraceSnapshot?
-        get() = traces.lastOrNull { it.events.any { event -> event is PlaybackDiagnosticEvent.FirstAudio } == false }
+        get() = activeTraceId?.let { id -> traces.lastOrNull { it.traceId == id } }
             ?: traces.lastOrNull()
 }
 
@@ -195,6 +196,7 @@ class PlaybackDebugCollector(
             traces = grouped,
             metrics = metricsFor(grouped, rawMetrics),
             rawMetrics = rawMetrics,
+            activeTraceId = PlaybackDiagnostics.current()?.traceId,
         )
     }
 

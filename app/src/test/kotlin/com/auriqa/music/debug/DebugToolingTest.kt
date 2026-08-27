@@ -142,6 +142,34 @@ class DebugToolingTest {
     }
 
     @Test
+    fun detachedPreloadNeverBecomesTheActiveHudTrace() = runBlocking {
+        PlaybackDiagnostics.clear()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val collector = PlaybackDebugCollector(scope)
+            val active = PlaybackDiagnostics.start("playing", "transition")
+            active.recordTap("user")
+            active.firstAudio()
+
+            val preload = PlaybackDiagnostics.startResolution("next", "preload")
+            preload.resolutionRequested("next", "OPUS")
+
+            val state = withTimeout(2_000L) {
+                collector.state.first { current ->
+                    current.traces.any { it.traceId == active.traceId } &&
+                        current.traces.any { it.traceId == preload.traceId }
+                }
+            }
+
+            assertEquals(active.traceId, state.activeTrace?.traceId)
+            assertEquals("playing", state.activeTrace?.mediaId)
+        } finally {
+            scope.cancel()
+            PlaybackDiagnostics.clear()
+        }
+    }
+
+    @Test
     fun collectorDetectsSlowTraceAndDominantStage() = runBlocking {
         PlaybackDiagnostics.clear()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
