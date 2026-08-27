@@ -365,7 +365,7 @@ private fun TraceSummaryHeader(
     val latencyColor = when {
         trace.failure != null -> MaterialTheme.colorScheme.error
         trace.slow -> MaterialTheme.colorScheme.tertiary
-        trace.tapToFirstAudioMs != null -> MaterialTheme.colorScheme.primary
+        trace.startToFirstAudioMs != null -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Row(
@@ -380,14 +380,14 @@ private fun TraceSummaryHeader(
                 fontFamily = FontFamily.Monospace,
             )
             Text(
-                trace.tapToFirstAudioMs?.let { "${it} ms" } ?: "N/A",
+                trace.startToFirstAudioMs?.let { "${it} ms" } ?: "N/A",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = latencyColor,
                 fontFamily = FontFamily.Monospace,
             )
             Text(
-                "tap to FIRST_AUDIO",
+                if (trace.userInitiated) "tap to FIRST_AUDIO" else "transition to FIRST_AUDIO",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -466,7 +466,7 @@ private fun PerformanceCard(metrics: DebugSessionMetrics) {
         KeyValue("success", metrics.successful)
         KeyValue("recovered", metrics.recovered)
         KeyValue("terminal", metrics.terminal)
-        KeyValue("cache hit rate", percent(metrics.cacheHitRate))
+        KeyValue("cache hit rate (ops)", percent(metrics.cacheHitRate))
         KeyValue("preload hit rate", percent(metrics.preloadHitRate))
         KeyValue("recovery success", percent(metrics.recoverySuccessRate))
         HistogramRows("tap → FIRST_AUDIO", metrics.tapToFirstAudio)
@@ -872,6 +872,8 @@ private fun formatTrace(trace: DebugTraceSnapshot, networkRecords: List<NetworkD
     appendLine("Trace: ${trace.traceId}")
     appendLine("Media: ${PlaybackRedactor.sanitizeScalar(trace.mediaId)}")
     appendLine("classification=${trace.classification}")
+    appendLine("userInitiated=${trace.userInitiated}")
+    appendLine("startToFirstAudio=${trace.startToFirstAudioMs ?: "N/A"}ms")
     appendLine("tapToFirstAudio=${trace.tapToFirstAudioMs ?: "N/A"}ms")
     appendLine("resolution=${trace.resolutionMs ?: "N/A"}ms")
     appendLine("playerResponse=${trace.playerResponseMs ?: "N/A"}ms")

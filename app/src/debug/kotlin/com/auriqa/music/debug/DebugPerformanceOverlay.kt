@@ -48,7 +48,8 @@ fun DebugPerformanceOverlay(
 
     val state by collector.state.collectAsState()
     val trace = state.activeTrace ?: return
-    val elapsed = trace.tapToFirstAudioMs ?: trace.events.lastOrNull()?.elapsedMs ?: 0L
+    val elapsed = trace.startToFirstAudioMs ?: trace.events.lastOrNull()?.elapsedMs ?: 0L
+    val sourceLabel = if (trace.userInitiated) "TAP" else "AUTO"
     val label = when {
         trace.recovered -> "RECOVERED"
         trace.classification == DebugPerformanceClass.PRELOADED -> "PRELOADED"
@@ -87,7 +88,7 @@ fun DebugPerformanceOverlay(
                 modifier = Modifier.heightIn(min = 40.dp),
             ) {
                 Text(
-                    text = "${if (trace.slow) "⚠" else "▶"} ${elapsed}ms · $label",
+                    text = "${if (trace.slow) "⚠" else "▶"} $sourceLabel ${elapsed}ms · $label",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),

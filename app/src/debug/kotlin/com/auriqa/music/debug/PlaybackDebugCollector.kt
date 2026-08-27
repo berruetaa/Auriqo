@@ -54,6 +54,8 @@ data class DebugTraceSnapshot(
     val events: List<PlaybackDiagnosticEvent>,
     val failure: PlaybackFailure?,
     val classification: DebugPerformanceClass,
+    val userInitiated: Boolean,
+    val startToFirstAudioMs: Long?,
     val tapToFirstAudioMs: Long?,
     val resolutionMs: Long?,
     val playerResponseMs: Long?,
@@ -207,6 +209,7 @@ class PlaybackDebugCollector(
             .lastOrNull()?.failure
         val firstAudioMs = events.filterIsInstance<PlaybackDiagnosticEvent.FirstAudio>()
             .firstOrNull()?.elapsedMs
+        val userInitiated = events.any { it is PlaybackDiagnosticEvent.Tap }
         val resolutionRequested = events.filterIsInstance<PlaybackDiagnosticEvent.ResolutionRequested>().firstOrNull()
         val streamSelected = events.filterIsInstance<PlaybackDiagnosticEvent.StreamSelected>().lastOrNull()
         val cacheHit = events.filterIsInstance<PlaybackDiagnosticEvent.ResolutionCacheHit>().lastOrNull()
@@ -266,7 +269,9 @@ class PlaybackDebugCollector(
             events = events,
             failure = failure,
             classification = classification,
-            tapToFirstAudioMs = firstAudioMs,
+            userInitiated = userInitiated,
+            startToFirstAudioMs = firstAudioMs,
+            tapToFirstAudioMs = firstAudioMs.takeIf { userInitiated },
             resolutionMs = resolutionMs,
             playerResponseMs = playerResponse?.durationMs,
             dataSourceMs = dataSource?.durationMs,
@@ -296,15 +301,16 @@ class PlaybackDebugCollector(
         traces: List<DebugTraceSnapshot>,
         rawMetrics: PlaybackMetricsSnapshot,
     ): DebugSessionMetrics {
-        val plays = traces.count { it.events.any { event -> event is PlaybackDiagnosticEvent.Tap } }
-        val successful = traces.count { it.succeeded }
-        val recovered = traces.count { it.recovered }
-        val terminal = traces.count { it.failure != null }
-        val firstAudioValues = traces.mapNotNull { it.tapToFirstAudioMs }
+        val userTraces = traces.filter { it.userInitiated }
+        val plays = userTraces.size
+        val successful = userTraces.count { it.succeeded }
+        val recovered = userTraces.count { it.recovered }
+        val terminal = userTraces.count { it.failure != null }
+        val firstAudioValues = userTraces.mapNotNull { it.tapToFirstAudioMs }
         val cacheHits = rawMetrics.cacheHits
         val cacheMisses = rawMetrics.cacheMisses
         val byClass = DebugPerformanceClass.entries.associateWith { classification ->
-            val subset = traces.filter { it.classification == classification }
+            val subset = userTraces.filter { it.classification == classification }
             DebugClassMetrics(
                 classification = classification,
                 plays = subset.size,
@@ -324,16 +330,16 @@ class PlaybackDebugCollector(
             cacheHits = cacheHits,
             cacheMisses = cacheMisses,
             cacheHitRate = cacheHits.toDouble() / (cacheHits + cacheMisses).coerceAtLeast(1L),
-            preloadHits = traces.count { it.classification == DebugPerformanceClass.PRELOADED },
-            preloadHitRate = traces.count { it.classification == DebugPerformanceClass.PRELOADED }
+            preloadHits = userTraces.count { it.classification == DebugPerformanceClass.PRELOADED },
+            preloadHitRate = userTraces.count { it.classification == DebugPerformanceClass.PRELOADED }
                 .toDouble() / plays.coerceAtLeast(1),
             terminalFailureRate = terminal.toDouble() / plays.coerceAtLeast(1),
             recoverySuccessRate = rawMetrics.recoverySuccesses.toDouble() / rawMetrics.recoveryAttempts.coerceAtLeast(1L),
             tapToFirstAudio = histogram(firstAudioValues),
-            resolution = histogram(traces.mapNotNull { it.resolutionMs }),
-            playerResponse = histogram(traces.mapNotNull { it.playerResponseMs }),
-            dataSource = histogram(traces.mapNotNull { it.dataSourceMs }),
-            recovery = histogram(traces.mapNotNull { it.recoveryMs }),
+            resolution = histogram(userTraces.mapNotNull { it.resolutionMs }),
+            playerResponse = histogram(userTraces.mapNotNull { it.playerResponseMs }),
+            dataSource = histogram(userTraces.mapNotNull { it.dataSourceMs }),
+            recovery = histogram(userTraces.mapNotNull { it.recoveryMs }),
             byClass = byClass,
         )
     }

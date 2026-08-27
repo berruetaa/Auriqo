@@ -170,6 +170,61 @@ class DebugToolingTest {
     }
 
     @Test
+    fun automaticAndPreloadTracesDoNotSkewUserPerformanceMetrics() = runBlocking {
+        PlaybackDiagnostics.clear()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val collector = PlaybackDebugCollector(scope)
+
+            PlaybackDiagnostics.buffer.append(PlaybackDiagnosticEvent.Tap("PB-USER0001", 0L, "user", "tap"))
+            PlaybackDiagnostics.buffer.append(PlaybackDiagnosticEvent.FirstAudio("PB-USER0001", 600L, "user"))
+
+            PlaybackDiagnostics.buffer.append(
+                PlaybackDiagnosticEvent.MediaItemCreated("PB-AUTO0001", 0L, "auto", 1),
+            )
+            PlaybackDiagnostics.buffer.append(PlaybackDiagnosticEvent.FirstAudio("PB-AUTO0001", 20L, "auto"))
+
+            PlaybackDiagnostics.buffer.append(
+                PlaybackDiagnosticEvent.Breadcrumb(
+                    "PB-PRELOAD1",
+                    0L,
+                    "next",
+                    "PRELOAD_STORED",
+                    "priority=0",
+                ),
+            )
+            PlaybackDiagnostics.buffer.append(
+                PlaybackDiagnosticEvent.Breadcrumb(
+                    "PB-PRELOAD1",
+                    5L,
+                    "next",
+                    "FIRST_BYTES_WARMED",
+                    "65536",
+                ),
+            )
+
+            val state = withTimeout(2_000L) {
+                collector.state.first { it.traces.size == 3 }
+            }
+
+            assertEquals(1, state.metrics.plays)
+            assertEquals(1, state.metrics.successful)
+            assertEquals(1, state.metrics.tapToFirstAudio.count)
+            assertEquals(600L, state.metrics.tapToFirstAudio.p50Ms)
+            assertEquals(0, state.metrics.preloadHits)
+            assertEquals(0.0, state.metrics.preloadHitRate, 0.0)
+
+            val auto = state.traces.first { it.traceId == "PB-AUTO0001" }
+            assertFalse(auto.userInitiated)
+            assertEquals(20L, auto.startToFirstAudioMs)
+            assertEquals(null, auto.tapToFirstAudioMs)
+        } finally {
+            scope.cancel()
+            PlaybackDiagnostics.clear()
+        }
+    }
+
+    @Test
     fun collectorDetectsSlowTraceAndDominantStage() = runBlocking {
         PlaybackDiagnostics.clear()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
