@@ -2327,7 +2327,14 @@ class MusicService :
 
         if (playbackState == Player.STATE_READY) {
             if (!player.playWhenReady) {
-                trace?.recoveryEndIfActive(success = true, result = "ready_paused")
+                val recoveryDuration = trace?.recoveryEndIfActive(
+                    success = true,
+                    result = "ready_paused",
+                )
+                if (recoveryDuration != null) {
+                    trace.breadcrumb("PRELOAD_REARMED_AFTER_RECOVERY", "ready_paused")
+                    preloadUpcomingItems()
+                }
             }
             consecutivePlaybackErr = 0
             retryCount = 0
@@ -2416,7 +2423,14 @@ class MusicService :
                     // playback position is advancing, unlike READY alone.
                     val playbackTrace = PlaybackDiagnostics.currentFor(player.currentMediaItem?.mediaId)
                     playbackTrace?.firstAudio()
-                    playbackTrace?.recoveryEndIfActive(success = true, result = "first_audio")
+                    val recoveryDuration = playbackTrace?.recoveryEndIfActive(
+                        success = true,
+                        result = "first_audio",
+                    )
+                    if (recoveryDuration != null) {
+                        playbackTrace.breadcrumb("PRELOAD_REARMED_AFTER_RECOVERY", "first_audio")
+                        preloadUpcomingItems()
+                    }
                 }
                 startWidgetUpdates()
                 acquireWifiLock()
@@ -3021,6 +3035,11 @@ class MusicService :
             is StreamRecoveryCoordinator.RecoveryDecision.Recover -> {
                 retryJob?.cancel()
                 waitingForNetworkConnection.value = false
+                if (preloadJob?.isActive == true) {
+                    trace?.breadcrumb("PRELOAD_CANCELLED_FOR_ACTIVE_RECOVERY")
+                    preloadJob?.cancel()
+                    preloadJob = null
+                }
                 forceStreamResolution.add(mediaId)
                 trace?.recoveryStart(
                     attempt = 1,
