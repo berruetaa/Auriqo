@@ -81,6 +81,67 @@ class DebugToolingTest {
     }
 
     @Test
+    fun streamCandidateEvidenceIsPromotedIntoTraceSummary() = runBlocking {
+        PlaybackDiagnostics.clear()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val collector = PlaybackDebugCollector(scope)
+            val traceId = "PB-CLIENT01"
+            PlaybackDiagnostics.buffer.append(PlaybackDiagnosticEvent.Tap(traceId, 0L, "video", "tap"))
+            PlaybackDiagnostics.buffer.append(
+                PlaybackDiagnosticEvent.Breadcrumb(
+                    traceId,
+                    20L,
+                    "video",
+                    "PLAYER_JS_SKIPPED",
+                    "client=VISIONOS reason=signature_timestamp_not_required",
+                ),
+            )
+            PlaybackDiagnostics.buffer.append(
+                PlaybackDiagnosticEvent.Breadcrumb(
+                    traceId,
+                    40L,
+                    "video",
+                    "STREAM_CANDIDATE",
+                    "VISIONOS/1.02 source=RawPlayer pot=false itag=251 context=7",
+                ),
+            )
+            PlaybackDiagnostics.buffer.append(
+                PlaybackDiagnosticEvent.StreamSelected(traceId, 42L, "video", 251, "audio/webm", 160_000),
+            )
+            PlaybackDiagnostics.buffer.append(PlaybackDiagnosticEvent.FirstAudio(traceId, 100L, "video"))
+
+            val trace = withTimeout(2_000L) {
+                collector.state.first {
+                    it.traces.any { snapshot -> snapshot.traceId == traceId && snapshot.succeeded }
+                }.traces.first { it.traceId == traceId }
+            }
+
+            assertEquals("VISIONOS/1.02", trace.streamClient)
+            assertEquals("RawPlayer", trace.streamSource)
+            assertEquals(false, trace.poTokenAttached)
+            assertEquals(7L, trace.streamContextGeneration)
+            assertEquals("PRIMARY", trace.resolverPath)
+            assertFalse(trace.playerJsUsed)
+        } finally {
+            scope.cancel()
+            PlaybackDiagnostics.clear()
+        }
+    }
+
+    @Test
+    fun candidateParserHandlesWebFallbackEvidence() {
+        val evidence = parseStreamCandidateEvidence(
+            "WEB_REMIX/1.20260811.15.00 source=RawPlayer pot=true itag=251 context=12",
+        )
+
+        assertEquals("WEB_REMIX/1.20260811.15.00", evidence.client)
+        assertEquals("RawPlayer", evidence.source)
+        assertEquals(true, evidence.poTokenAttached)
+        assertEquals(12L, evidence.contextGeneration)
+    }
+
+    @Test
     fun collectorDetectsSlowTraceAndDominantStage() = runBlocking {
         PlaybackDiagnostics.clear()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

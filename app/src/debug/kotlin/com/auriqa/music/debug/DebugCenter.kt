@@ -338,6 +338,12 @@ private fun LiveTraceCard(
         selected?.let { trace ->
             KeyValue("view", if (historical) "HISTORICAL" else "ACTIVE")
             KeyValue("classification", trace.classification.name)
+            KeyValue("resolver path", trace.resolverPath)
+            KeyValue("stream client", trace.streamClient ?: "N/A")
+            KeyValue("stream source", trace.streamSource ?: "N/A")
+            KeyValue("PoToken", trace.poTokenAttached?.toString() ?: "N/A")
+            KeyValue("context generation", trace.streamContextGeneration ?: "N/A")
+            KeyValue("Player JS used", trace.playerJsUsed)
             KeyValue("cache", trace.cacheState)
             KeyValue("itag", trace.itag ?: "N/A")
             KeyValue("format", trace.mimeType ?: "N/A")

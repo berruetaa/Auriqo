@@ -22,6 +22,32 @@ enum class DebugPerformanceClass {
     UNKNOWN,
 }
 
+data class DebugStreamEvidence(
+    val client: String? = null,
+    val source: String? = null,
+    val poTokenAttached: Boolean? = null,
+    val contextGeneration: Long? = null,
+)
+
+internal fun parseStreamCandidateEvidence(value: String?): DebugStreamEvidence {
+    if (value.isNullOrBlank()) return DebugStreamEvidence()
+    val client = value.substringBefore(" source=").takeIf { it.isNotBlank() }
+    val tokens = value.split(' ')
+        .drop(1)
+        .mapNotNull { token ->
+            val separator = token.indexOf('=')
+            if (separator <= 0 || separator == token.lastIndex) null
+            else token.substring(0, separator) to token.substring(separator + 1)
+        }
+        .toMap()
+    return DebugStreamEvidence(
+        client = client,
+        source = tokens["source"],
+        poTokenAttached = tokens["pot"]?.toBooleanStrictOrNull(),
+        contextGeneration = tokens["context"]?.toLongOrNull(),
+    )
+}
+
 data class DebugTraceSnapshot(
     val traceId: String,
     val mediaId: String?,
@@ -41,6 +67,12 @@ data class DebugTraceSnapshot(
     val bitrate: Int?,
     val expiresInMs: Long?,
     val preloadedBytes: Int?,
+    val streamClient: String?,
+    val streamSource: String?,
+    val poTokenAttached: Boolean?,
+    val streamContextGeneration: Long?,
+    val resolverPath: String,
+    val playerJsUsed: Boolean,
 ) {
     val lastEvent: PlaybackDiagnosticEvent?
         get() = events.lastOrNull()
@@ -181,9 +213,26 @@ class PlaybackDebugCollector(
         val dataSource = events.filterIsInstance<PlaybackDiagnosticEvent.DataSourceOpenEnd>().lastOrNull()
         val recovery = events.filterIsInstance<PlaybackDiagnosticEvent.RecoveryEnd>().lastOrNull()
         val recoveryStarted = events.any { it is PlaybackDiagnosticEvent.RecoveryStart }
-        val preloadedBytes = events.filterIsInstance<PlaybackDiagnosticEvent.Breadcrumb>()
+        val breadcrumbs = events.filterIsInstance<PlaybackDiagnosticEvent.Breadcrumb>()
+        val preloadedBytes = breadcrumbs
             .firstOrNull { it.name == "FIRST_BYTES_WARMED" }
             ?.value?.toIntOrNull()
+        val streamEvidence = parseStreamCandidateEvidence(
+            breadcrumbs.lastOrNull { it.name == "STREAM_CANDIDATE" }?.value,
+        )
+        val primarySkipped = breadcrumbs.any {
+            it.name == "PRIMARY_CLIENT_SKIPPED" ||
+                it.name == "PRIMARY_PLAYER_REQUEST_SKIPPED"
+        }
+        val primaryFailed = breadcrumbs.any { it.name == "PRIMARY_PLAYER_REQUEST_FAILED" }
+        val playerJsUsed = breadcrumbs.any { it.name == "PLAYER_JS_REQUIRED" }
+        val resolverPath = when {
+            primarySkipped -> "RECOVERY_FALLBACK"
+            primaryFailed -> "PRIMARY_FAILED_FALLBACK"
+            streamEvidence.client?.startsWith("VISIONOS/") == true -> "PRIMARY"
+            streamEvidence.client != null -> "FALLBACK"
+            else -> "N/A"
+        }
         val hasPreloadMarker = events.filterIsInstance<PlaybackDiagnosticEvent.Breadcrumb>().any {
             it.name == "PRELOAD_STORED" || it.name == "FIRST_BYTES_WARMED" ||
                 (it.name == "CACHE_ORIGIN" && it.value?.contains("preload", ignoreCase = true) == true)
@@ -232,6 +281,12 @@ class PlaybackDebugCollector(
             bitrate = streamSelected?.bitrate,
             expiresInMs = cacheHit?.expiresInMs,
             preloadedBytes = preloadedBytes,
+            streamClient = streamEvidence.client,
+            streamSource = streamEvidence.source,
+            poTokenAttached = streamEvidence.poTokenAttached,
+            streamContextGeneration = streamEvidence.contextGeneration,
+            resolverPath = resolverPath,
+            playerJsUsed = playerJsUsed,
         )
     }
 
