@@ -776,18 +776,16 @@ object YTPlayerUtils {
     private fun validateStatus(url: String, client: YouTubeClient): Boolean {
         Timber.tag(logTag).d("Validating stream URL status")
         try {
-            val requestBuilder = okhttp3.Request.Builder()
+            val request = okhttp3.Request.Builder()
                 .get()
                 .url(url)
                 .header("Range", "bytes=0-0")
                 .header("User-Agent", client.userAgent)
+                .build()
 
-            
-            YouTube.cookie?.let { cookie ->
-                requestBuilder.addHeader("Cookie", cookie)
-            }
-
-            httpClient.newCall(requestBuilder.build()).execute().use { response ->
+            // Keep validation request identity aligned with Media3. Do not add YouTube cookies
+            // here: the actual googlevideo DataSource does not send them either.
+            httpClient.newCall(request).execute().use { response ->
                 val isSuccessful = response.isSuccessful
                 Timber.tag(logTag).d("Stream URL validation result: ${if (isSuccessful) "Success" else "Failed"} (${response.code})")
                 return isSuccessful
