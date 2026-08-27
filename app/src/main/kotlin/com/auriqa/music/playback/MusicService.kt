@@ -836,15 +836,29 @@ class MusicService :
         }
 
         scope.launch {
-            connectivityObserver.networkStatus.collect { isConnected ->
-                if (lastNetworkConnected != null && lastNetworkConnected != isConnected) {
+            var initialized = false
+            var lastRoute: com.auriqo.music.utils.NetworkConnectivityObserver.RouteIdentity? = null
+            connectivityObserver.defaultRoute.collect { route ->
+                if (initialized && route != lastRoute) {
                     streamNetworkGeneration++
                     preloadJob?.cancel()
-                    // Route changes can invalidate signed CDN URLs. Discard look-ahead
-                    // resolutions while retaining the current item until it actually needs a
-                    // re-open; downloaded bytes remain in their separate cache.
-                    streamRecovery.retainOnly(player.currentMediaItem?.mediaId)
+                    streamRecovery.activateContext(
+                        sessionGeneration = YouTube.streamContextGeneration,
+                        networkGeneration = streamNetworkGeneration,
+                    )
+                    PlaybackDiagnostics.current()?.breadcrumb(
+                        "DEFAULT_NETWORK_CHANGED",
+                        "generation=$streamNetworkGeneration",
+                    )
+                    Timber.tag(TAG).i("Default network changed; stream generation=$streamNetworkGeneration")
                 }
+                lastRoute = route
+                initialized = true
+            }
+        }
+
+        scope.launch {
+            connectivityObserver.networkStatus.collect { isConnected ->
                 lastNetworkConnected = isConnected
                 isNetworkConnected.value = isConnected
                 PlaybackDiagnostics.current()?.networkChanged(
