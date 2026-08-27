@@ -74,6 +74,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.Proxy
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
 /**
@@ -82,17 +83,35 @@ import kotlin.random.Random
  */
 object YouTube {
     private val innerTube = InnerTube()
+    private val streamContextGenerationCounter = AtomicLong(0L)
+
+    /**
+     * Monotonic identity for request state that can affect a signed stream URL. Stream caches may
+     * use this value, but must never persist the account values themselves.
+     */
+    val streamContextGeneration: Long
+        get() = streamContextGenerationCounter.get()
 
     /** Apply connection settings through the single InnerTube configuration boundary. */
     @Synchronized
     fun applyConnectionConfig(config: YouTubeConnectionConfig) {
+        val changed = innerTube.locale != config.locale ||
+            innerTube.proxy != config.proxy ||
+            innerTube.proxyAuth != config.proxyAuth ||
+            innerTube.useLoginForBrowse != config.useLoginForBrowse ||
+            innerTube.ipVersion != config.ipVersion
         innerTube.applyConnectionConfig(config)
+        if (changed) streamContextGenerationCounter.incrementAndGet()
     }
 
     /** Apply account/session settings through the single InnerTube session boundary. */
     @Synchronized
     fun applyAccountSession(session: YouTubeAccountSession) {
+        val changed = innerTube.cookie != session.cookie ||
+            innerTube.visitorData != session.visitorData ||
+            innerTube.dataSyncId != session.dataSyncId
         innerTube.applyAccountSession(session)
+        if (changed) streamContextGenerationCounter.incrementAndGet()
     }
 
     var locale: YouTubeLocale

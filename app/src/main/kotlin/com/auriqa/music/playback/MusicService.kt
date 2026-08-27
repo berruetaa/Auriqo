@@ -2596,11 +2596,19 @@ class MusicService :
     private fun streamKey(
         mediaId: String,
         quality: com.auriqo.music.constants.AudioQuality,
-    ): StreamRecoveryCoordinator.StreamKey = StreamRecoveryCoordinator.StreamKey(
-        mediaId = mediaId,
-        quality = quality.name,
-        networkGeneration = streamNetworkGeneration,
-    )
+    ): StreamRecoveryCoordinator.StreamKey {
+        val sessionGeneration = YouTube.streamContextGeneration
+        streamRecovery.activateContext(
+            sessionGeneration = sessionGeneration,
+            networkGeneration = streamNetworkGeneration,
+        )
+        return StreamRecoveryCoordinator.StreamKey(
+            mediaId = mediaId,
+            quality = quality.name,
+            sessionGeneration = sessionGeneration,
+            networkGeneration = streamNetworkGeneration,
+        )
+    }
 
     private fun playbackNetworkType(): String {
         val network = connectivityManager.activeNetwork ?: return "offline"

@@ -121,11 +121,38 @@ internal class StreamRecoveryCoordinator(
     private val resolutionGenerations = mutableMapOf<String, Long>()
 
     private var activeMediaId: String? = null
+    private var activeSessionGeneration = 0L
+    private var activeNetworkGeneration = 0L
     private var attemptedRecoveryFor: String? = null
     private var recoveryInProgress: RecoveryToken? = null
     private var recoveryGeneration = 0L
 
+    fun activateContext(sessionGeneration: Long, networkGeneration: Long): Boolean = synchronized(lock) {
+        require(sessionGeneration >= 0L) { "sessionGeneration must not be negative" }
+        require(networkGeneration >= 0L) { "networkGeneration must not be negative" }
+
+        // A resolver that captured an older context must not roll the coordinator backwards.
+        if (sessionGeneration < activeSessionGeneration || networkGeneration < activeNetworkGeneration) {
+            return@synchronized false
+        }
+        if (sessionGeneration == activeSessionGeneration && networkGeneration == activeNetworkGeneration) {
+            return@synchronized true
+        }
+
+        activeSessionGeneration = sessionGeneration
+        activeNetworkGeneration = networkGeneration
+
+        // Context changes can invalidate every signed URL and every in-flight preload. Keep the
+        // byte/download caches separate; this cache owns only short-lived resolutions.
+        val invalidatedMediaIds = resolutionGenerations.keys.toMutableSet()
+        streams.keys.mapTo(invalidatedMediaIds) { it.mediaId }
+        streams.clear()
+        invalidatedMediaIds.forEach(::invalidateGenerationLocked)
+        true
+    }
+
     fun cachedStream(key: StreamKey): CachedStream? = synchronized(lock) {
+        if (!isActiveContextLocked(key)) return@synchronized null
         val cached = streams[key] ?: return@synchronized null
         if (cached.expiresAtMs <= safeExpiryBoundaryLocked()) {
             streams.remove(key)
@@ -158,6 +185,9 @@ internal class StreamRecoveryCoordinator(
         urlSource: String? = null,
         hasPoToken: Boolean = false,
     ): CacheWriteResult = synchronized(lock) {
+        if (!isActiveContextLocked(key)) {
+            return@synchronized CacheWriteResult.Superseded
+        }
         if (token.mediaId != key.mediaId ||
             token.generation != resolutionGenerationLocked(key.mediaId)
         ) {
@@ -341,6 +371,10 @@ internal class StreamRecoveryCoordinator(
     }
 
     private fun resolutionGenerationLocked(mediaId: String): Long = resolutionGenerations[mediaId] ?: 0L
+
+    private fun isActiveContextLocked(key: StreamKey): Boolean =
+        key.sessionGeneration == activeSessionGeneration &&
+            key.networkGeneration == activeNetworkGeneration
 
     private fun safeExpiryBoundaryLocked(): Long = clockMs() + expirySafetyMarginMs
 

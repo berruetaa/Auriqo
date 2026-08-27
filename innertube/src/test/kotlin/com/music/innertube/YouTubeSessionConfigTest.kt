@@ -39,6 +39,59 @@ class YouTubeSessionConfigTest {
     }
 
     @Test
+    fun `stream context generation changes only when connection state changes`() {
+        val original = YouTubeConnectionConfig(
+            locale = YouTube.locale,
+            proxy = YouTube.proxy,
+            proxyAuth = YouTube.proxyAuth,
+            useLoginForBrowse = YouTube.useLoginForBrowse,
+            ipVersion = YouTube.ipVersion,
+        )
+        val before = YouTube.streamContextGeneration
+
+        YouTube.applyConnectionConfig(original)
+        assertEquals(before, YouTube.streamContextGeneration)
+
+        val changed = original.copy(
+            locale = YouTubeLocale(
+                gl = if (original.locale.gl == "UY") "US" else "UY",
+                hl = original.locale.hl,
+            ),
+        )
+        try {
+            YouTube.applyConnectionConfig(changed)
+            assertEquals(before + 1L, YouTube.streamContextGeneration)
+            YouTube.applyConnectionConfig(changed)
+            assertEquals(before + 1L, YouTube.streamContextGeneration)
+        } finally {
+            YouTube.applyConnectionConfig(original)
+        }
+    }
+
+    @Test
+    fun `stream context generation changes only when account state changes`() {
+        val original = YouTubeAccountSession(
+            cookie = YouTube.cookie,
+            visitorData = YouTube.visitorData,
+            dataSyncId = YouTube.dataSyncId,
+        )
+        val before = YouTube.streamContextGeneration
+
+        YouTube.applyAccountSession(original)
+        assertEquals(before, YouTube.streamContextGeneration)
+
+        val changed = original.copy(visitorData = (original.visitorData ?: "visitor") + "-generation-test")
+        try {
+            YouTube.applyAccountSession(changed)
+            assertEquals(before + 1L, YouTube.streamContextGeneration)
+            YouTube.applyAccountSession(changed)
+            assertEquals(before + 1L, YouTube.streamContextGeneration)
+        } finally {
+            YouTube.applyAccountSession(original)
+        }
+    }
+
+    @Test
     fun `account session is applied and can be cleared`() {
         val original = YouTubeAccountSession(
             cookie = YouTube.cookie,

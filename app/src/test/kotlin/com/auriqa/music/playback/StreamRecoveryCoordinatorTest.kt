@@ -389,6 +389,62 @@ class StreamRecoveryCoordinatorTest {
     }
 
     @Test
+    fun contextChangeInvalidatesCachedStreamsAndLateWrites() {
+        coordinator.activateContext(sessionGeneration = 1L, networkGeneration = 2L)
+        val oldKey = StreamRecoveryCoordinator.StreamKey(
+            mediaId = "video-id",
+            quality = "OPUS",
+            sessionGeneration = 1L,
+            networkGeneration = 2L,
+        )
+        val oldToken = coordinator.resolutionToken(oldKey.mediaId)
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Stored,
+            coordinator.cacheStream(
+                oldKey,
+                "https://cdn.example/old",
+                nowMs + 60_000L,
+                oldToken,
+            ),
+        )
+
+        assertTrue(coordinator.activateContext(sessionGeneration = 2L, networkGeneration = 2L))
+        assertNull(coordinator.cachedStream(oldKey))
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Superseded,
+            coordinator.cacheStream(
+                oldKey,
+                "https://cdn.example/late-old",
+                nowMs + 60_000L,
+                oldToken,
+            ),
+        )
+    }
+
+    @Test
+    fun staleContextCannotRollCoordinatorBackwards() {
+        coordinator.activateContext(sessionGeneration = 5L, networkGeneration = 7L)
+        assertFalse(coordinator.activateContext(sessionGeneration = 4L, networkGeneration = 7L))
+        assertFalse(coordinator.activateContext(sessionGeneration = 5L, networkGeneration = 6L))
+
+        val staleKey = StreamRecoveryCoordinator.StreamKey(
+            mediaId = "video-id",
+            quality = "OPUS",
+            sessionGeneration = 4L,
+            networkGeneration = 7L,
+        )
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Superseded,
+            coordinator.cacheStream(
+                staleKey,
+                "https://cdn.example/stale",
+                nowMs + 60_000L,
+                coordinator.resolutionToken(staleKey.mediaId),
+            ),
+        )
+    }
+
+    @Test
     fun playbackGenerationChangesOnlyForForcedOrNewMediaPlayback() {
         val initial = coordinator.playbackGeneration()
         coordinator.beginPlayback("video-id")
