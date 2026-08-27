@@ -102,6 +102,11 @@ object YTPlayerUtils {
         val format: PlayerResponse.StreamingData.Format,
         val streamUrl: String,
         val streamExpiresInSeconds: Int,
+        val streamClientName: String,
+        val streamClientVersion: String,
+        val streamUserAgent: String,
+        val streamUrlSource: String,
+        val streamingPoTokenAttached: Boolean,
     )
 
     internal enum class StreamUrlSource {
@@ -128,6 +133,7 @@ object YTPlayerUtils {
         knownDurationMs: Long? = null,
         isDownload: Boolean = false,
         excludedItags: Set<Int> = emptySet(),
+        skipPrimaryClient: Boolean = false,
     ): Result<PlaybackData> {
         val trace = PlaybackDiagnostics.currentFor(videoId)
         trace?.playerResponseStart()
@@ -140,6 +146,7 @@ object YTPlayerUtils {
             knownArtist,
             knownTitle,
             excludedItags,
+            skipPrimaryClient,
         )
         val result = if (firstAttempt.isFailure && YouTube.cookie == null) {
             Timber.tag(TAG).w("Playback failed for guest. Rotating session and retrying...")
@@ -154,6 +161,7 @@ object YTPlayerUtils {
                 knownArtist,
                 knownTitle,
                 excludedItags,
+                skipPrimaryClient,
             )
             retryResult.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
             retryResult
@@ -178,6 +186,7 @@ object YTPlayerUtils {
         knownArtist: String? = null,
         knownTitle: String? = null,
         excludedItags: Set<Int> = emptySet(),
+        skipPrimaryClient: Boolean = false,
     ): Result<PlaybackData> = runCatching {
         Timber.tag(logTag).d("Fetching player response for videoId: $videoId, playlistId: $playlistId")
         PlaybackLogManager.log(PlaybackLogLevel.INFO, "Resolving playback data", "Video: $videoId")
@@ -296,6 +305,8 @@ object YTPlayerUtils {
         var streamUrl: String? = null
         var streamExpiresInSeconds: Int? = null
         var streamPlayerResponse: PlayerResponse? = null
+        var selectedStreamClient: YouTubeClient? = null
+        var selectedStreamSource: StreamUrlSource? = null
         var retryMainPlayerResponse: PlayerResponse? = if (usedAgeRestrictedClient != null) mainPlayerResponse else null
 
         
@@ -321,7 +332,11 @@ object YTPlayerUtils {
         val startIndex = when {
             isPrivateTrack -> 0
             isAgeRestricted -> 0
+            skipPrimaryClient -> 0
             else -> -1
+        }
+        if (skipPrimaryClient) {
+            PlaybackDiagnostics.currentFor(videoId)?.breadcrumb("PRIMARY_CLIENT_SKIPPED", MAIN_CLIENT.clientName)
         }
 
         for (clientIndex in (startIndex until STREAM_FALLBACK_CLIENTS.size)) {
@@ -417,6 +432,7 @@ object YTPlayerUtils {
                 }
                 val rawStreamUrl = resolvedStream.url
                 streamUrl = rawStreamUrl
+                selectedStreamSource = resolvedStream.source
 
                 
                 val currentClient = if (clientIndex == -1) {
@@ -476,6 +492,7 @@ object YTPlayerUtils {
                 val isPrivatelyOwned = streamPlayerResponse.videoDetails?.musicVideoType == "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
 
                 if (isPrivatelyOwned) {
+                    selectedStreamClient = currentClient
                     Timber.tag(logTag).d("Skipping validation for privately owned track: ${currentClient.clientName}")
                     PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
                         "STREAM_CLIENT_SELECTED",
@@ -491,6 +508,7 @@ object YTPlayerUtils {
                     // and delayed cold start; rejected URLs are classified and recovered by the
                     // player boundary below. Fallback clients still use validation to choose a
                     // viable candidate before spending another resolution attempt.
+                    selectedStreamClient = currentClient
                     PlaybackDiagnostics.currentFor(videoId)?.breadcrumb("STREAM_VALIDATION_SKIPPED", "main_client")
                     PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
                         "STREAM_CLIENT_SELECTED",
@@ -501,7 +519,7 @@ object YTPlayerUtils {
                 }
 
                 if (validateStatus(streamUrl!!, currentClient)) {
-                    
+                    selectedStreamClient = currentClient
                     PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
                         "STREAM_CLIENT_SELECTED",
                         "${currentClient.clientName}/${currentClient.clientVersion} validation=range_get",
@@ -528,6 +546,7 @@ object YTPlayerUtils {
                                 if (validateStatus(fallbackStreamUrl, currentClient)) {
                                     Timber.tag(logTag).d("N-transformed URL VALIDATED OK!")
                                     streamUrl = fallbackStreamUrl
+                                    selectedStreamClient = currentClient
                                     nTransformWorked = true
                                     Log.i(TAG, "Playback: client=${currentClient.clientName}, videoId=$videoId (cipher n-transform)")
                                 }
@@ -599,14 +618,33 @@ object YTPlayerUtils {
             )
         }
 
-        Timber.tag(logTag).d("Successfully obtained playback data with format: ${format.mimeType}, bitrate: ${format.bitrate}")
+        val finalStreamClient = selectedStreamClient ?: throw PlaybackResolutionException(
+            message = "No stream candidate passed the acceptance policy",
+            hint = PlaybackFailureHint.STREAM_URL_EXPIRED,
+        )
+        val finalSource = selectedStreamSource?.name ?: "UNKNOWN"
+        val hasStreamingPoToken = Uri.parse(streamUrl).getQueryParameter("pot") != null
+        PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+            "STREAM_CANDIDATE",
+            "${finalStreamClient.clientName}/${finalStreamClient.clientVersion} " +
+                "source=$finalSource pot=$hasStreamingPoToken itag=${format.itag}",
+        )
+        Timber.tag(logTag).d(
+            "Successfully obtained playback data with client=${finalStreamClient.clientName} " +
+                "format=${format.mimeType}, bitrate=${format.bitrate}",
+        )
         PlaybackData(
-            audioConfig,
-            videoDetails,
-            playbackTracking,
-            format,
-            streamUrl,
-            streamExpiresInSeconds,
+            audioConfig = audioConfig,
+            videoDetails = videoDetails,
+            playbackTracking = playbackTracking,
+            format = format,
+            streamUrl = streamUrl,
+            streamExpiresInSeconds = streamExpiresInSeconds,
+            streamClientName = finalStreamClient.clientName,
+            streamClientVersion = finalStreamClient.clientVersion,
+            streamUserAgent = finalStreamClient.userAgent,
+            streamUrlSource = finalSource,
+            streamingPoTokenAttached = hasStreamingPoToken,
         )
     }.onFailure { e ->
         if (e is kotlinx.coroutines.CancellationException) throw e

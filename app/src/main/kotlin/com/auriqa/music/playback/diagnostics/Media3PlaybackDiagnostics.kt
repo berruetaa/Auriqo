@@ -52,6 +52,9 @@ object Media3PlaybackDiagnostics {
         )
     }
 
+    fun findFailedDataSpec(error: Throwable): DataSpec? =
+        findCause<HttpDataSource.InvalidResponseCodeException>(error)?.dataSpec
+
     fun findHttpDetails(error: Throwable, knownItag: Int? = null): PlaybackHttpDetails? {
         val invalid = findCause<HttpDataSource.InvalidResponseCodeException>(error) ?: return null
         val uri = invalid.dataSpec.uri
@@ -184,6 +187,7 @@ class PlaybackTracingDataSource(
     private val upstream: DataSource,
     private val traceProvider: (String?) -> PlaybackTraceRecorder?,
     private val onHttpFailure: ((DataSpec, PlaybackHttpDetails) -> Unit)? = null,
+    private val onOpenSuccess: ((DataSpec) -> Unit)? = null,
 ) : DataSource {
     private var trace: PlaybackTraceRecorder? = null
 
@@ -220,7 +224,10 @@ class PlaybackTracingDataSource(
             }
             DebugRuntime.instance.withNetworkTrace(trace?.traceId) {
                 upstream.open(dataSpec)
-            }.also { trace?.dataSourceOpenEnd(success = true) }
+            }.also {
+                trace?.dataSourceOpenEnd(success = true)
+                runCatching { onOpenSuccess?.invoke(dataSpec) }
+            }
         } catch (error: Throwable) {
             val httpDetails = Media3PlaybackDiagnostics.findHttpDetails(error)
             trace?.let {
@@ -243,12 +250,14 @@ class PlaybackTracingDataSource(
         private val upstreamFactory: DataSource.Factory,
         private val traceProvider: (String?) -> PlaybackTraceRecorder?,
         private val onHttpFailure: ((DataSpec, PlaybackHttpDetails) -> Unit)? = null,
+        private val onOpenSuccess: ((DataSpec) -> Unit)? = null,
     ) : DataSource.Factory {
         override fun createDataSource(): DataSource =
             PlaybackTracingDataSource(
                 upstreamFactory.createDataSource(),
                 traceProvider,
                 onHttpFailure,
+                onOpenSuccess,
             )
     }
 }

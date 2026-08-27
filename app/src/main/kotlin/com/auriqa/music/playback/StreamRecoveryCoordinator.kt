@@ -29,6 +29,11 @@ internal class StreamRecoveryCoordinator(
         val itag: Int? = null,
         val mimeType: String? = null,
         val bitrate: Int? = null,
+        val clientName: String? = null,
+        val clientVersion: String? = null,
+        val userAgent: String? = null,
+        val urlSource: String? = null,
+        val hasPoToken: Boolean = false,
     )
 
     /** Redacted state exposed to the debug source set; the signed URL is intentionally absent. */
@@ -43,6 +48,10 @@ internal class StreamRecoveryCoordinator(
         val itag: Int?,
         val mimeType: String?,
         val bitrate: Int?,
+        val clientName: String?,
+        val clientVersion: String?,
+        val urlSource: String?,
+        val hasPoToken: Boolean,
     )
 
     data class DebugSnapshot(
@@ -110,7 +119,6 @@ internal class StreamRecoveryCoordinator(
     private val lock = Any()
     private val streams = mutableMapOf<StreamKey, CachedStream>()
     private val resolutionGenerations = mutableMapOf<String, Long>()
-    private val dataSourceRejectionGenerations = mutableMapOf<String, Long>()
 
     private var activeMediaId: String? = null
     private var attemptedRecoveryFor: String? = null
@@ -144,6 +152,11 @@ internal class StreamRecoveryCoordinator(
         itag: Int? = null,
         mimeType: String? = null,
         bitrate: Int? = null,
+        clientName: String? = null,
+        clientVersion: String? = null,
+        userAgent: String? = null,
+        urlSource: String? = null,
+        hasPoToken: Boolean = false,
     ): CacheWriteResult = synchronized(lock) {
         if (token.mediaId != key.mediaId ||
             token.generation != resolutionGenerationLocked(key.mediaId)
@@ -161,6 +174,11 @@ internal class StreamRecoveryCoordinator(
             itag = itag,
             mimeType = mimeType,
             bitrate = bitrate,
+            clientName = clientName,
+            clientVersion = clientVersion,
+            userAgent = userAgent,
+            urlSource = urlSource,
+            hasPoToken = hasPoToken,
         )
         CacheWriteResult.Stored
     }
@@ -181,12 +199,6 @@ internal class StreamRecoveryCoordinator(
     }
 
     fun retainOnly(mediaId: String?) = synchronized(lock) {
-        val rejectionIterator = dataSourceRejectionGenerations.keys.iterator()
-        while (rejectionIterator.hasNext()) {
-            if (rejectionIterator.next() != mediaId) {
-                rejectionIterator.remove()
-            }
-        }
         // Tokens may have been issued for a preload that has not reached the cache yet. Keep
         // their generation tombstones too, otherwise that late completion could reinsert a
         // stream for an item that was just discarded.
@@ -205,23 +217,29 @@ internal class StreamRecoveryCoordinator(
 
     /** Invalidates all quality variants for this one media id, never the download cache. */
     fun invalidateStream(mediaId: String) = synchronized(lock) {
-        dataSourceRejectionGenerations.remove(mediaId)
         invalidateStreamLocked(mediaId)
     }
 
     /**
-     * Invalidates a URL as soon as its DataSource receives a rejected HTTP response. Media3 may
-     * reopen the same DataSpec several times before delivering the player error, so only the
-     * first rejection in one playback generation is allowed to trigger a fresh resolution.
+     * Reject exactly the signed candidate that failed. Duplicate callbacks become no-ops, and
+     * a delayed callback for candidate A can never evict a newer candidate B.
      */
-    fun invalidateStreamAfterDataSourceFailure(mediaId: String): Boolean = synchronized(lock) {
-        val playbackGeneration = recoveryGeneration
-        if (dataSourceRejectionGenerations[mediaId] == playbackGeneration) {
-            return@synchronized false
+    fun rejectStreamAfterDataSourceFailure(mediaId: String, failedUrl: String): Boolean = synchronized(lock) {
+        var removed = false
+        val iterator = streams.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (entry.key.mediaId == mediaId && entry.value.url == failedUrl) {
+                iterator.remove()
+                removed = true
+            }
         }
-        dataSourceRejectionGenerations[mediaId] = playbackGeneration
-        invalidateStreamLocked(mediaId)
-        true
+        if (removed) invalidateGenerationLocked(mediaId)
+        removed
+    }
+
+    fun isCurrentStream(mediaId: String, url: String): Boolean = synchronized(lock) {
+        streams.any { (key, stream) -> key.mediaId == mediaId && stream.url == url }
     }
 
     /** Arms a new user/media-item playback generation. A successful READY state must not call this. */
@@ -256,6 +274,10 @@ internal class StreamRecoveryCoordinator(
                 itag = stream.itag,
                 mimeType = stream.mimeType,
                 bitrate = stream.bitrate,
+                clientName = stream.clientName,
+                clientVersion = stream.clientVersion,
+                urlSource = stream.urlSource,
+                hasPoToken = stream.hasPoToken,
             )
         }.sortedWith(compareBy<DebugStreamEntry> { it.mediaId }.thenBy { it.quality })
         DebugSnapshot(
@@ -270,6 +292,7 @@ internal class StreamRecoveryCoordinator(
     fun onFailure(
         snapshot: PlaybackSnapshot,
         failure: FailureKind,
+        streamResolutionAlreadyHandled: Boolean = false,
     ): RecoveryDecision = synchronized(lock) {
         if (failure == FailureKind.Permanent) {
             return@synchronized RecoveryDecision.NotRecoverable
@@ -288,7 +311,7 @@ internal class StreamRecoveryCoordinator(
 
         // Even a terminal second stream failure must evict the known-bad fresh URL, so a later
         // user initiated playback does not reuse it. Local-source recovery has no URL to evict.
-        if (failure.invalidatesStreamResolution) {
+        if (failure.invalidatesStreamResolution && !streamResolutionAlreadyHandled) {
             invalidateStreamLocked(snapshot.mediaId)
         }
 

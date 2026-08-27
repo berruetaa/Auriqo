@@ -2847,7 +2847,8 @@ class MusicService :
     private suspend fun invalidateVolatileStreamCache(mediaId: String) = withContext(Dispatchers.IO) {
         try {
             playerCache.removeResource(mediaId)
-            Timber.tag(TAG).d("Cleared volatile player cache for $mediaId")
+            playerCache.removeResource("${mediaId}_diff")
+            Timber.tag(TAG).d("Cleared volatile player cache for $mediaId and recovery key")
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -2933,7 +2934,22 @@ class MusicService :
             playWhenReady = player.playWhenReady,
         )
 
-        return when (val decision = streamRecovery.onFailure(snapshot, failureKind)) {
+        val failedDataSpec = Media3PlaybackDiagnostics.findFailedDataSpec(error)
+        val exactRejectedCandidateHandled = isRejectedStreamFailure(error) && failedDataSpec != null
+        if (exactRejectedCandidateHandled) {
+            streamRecovery.rejectStreamAfterDataSourceFailure(
+                mediaId,
+                requireNotNull(failedDataSpec).uri.toString(),
+            )
+        }
+
+        return when (
+            val decision = streamRecovery.onFailure(
+                snapshot,
+                failureKind,
+                streamResolutionAlreadyHandled = exactRejectedCandidateHandled,
+            )
+        ) {
             is StreamRecoveryCoordinator.RecoveryDecision.Recover -> {
                 retryJob?.cancel()
                 waitingForNetworkConnection.value = false
@@ -3352,6 +3368,7 @@ class MusicService :
     private fun resolvePlaybackDataForStream(
         mediaId: String,
         quality: com.auriqo.music.constants.AudioQuality,
+        skipPrimaryClient: Boolean = false,
     ): YTPlayerUtils.PlaybackData {
         val queueMetadata = lookupPlaybackMetadata(
             playbackMetadataSnapshot.asSequence().map { it.key to it.value },
@@ -3379,6 +3396,7 @@ class MusicService :
                         knownTitle = knownTitle,
                         knownDurationMs = knownDuration,
                         excludedItags = excludedFormatItags[mediaId]?.toSet().orEmpty(),
+                        skipPrimaryClient = skipPrimaryClient,
                     )
                 }
             }.getOrElse { throwable ->
@@ -3468,6 +3486,27 @@ class MusicService :
         }
     }
 
+    private fun DataSpec.withResolvedStream(url: String, userAgent: String?): DataSpec {
+        val headers = if (userAgent.isNullOrBlank()) httpRequestHeaders
+        else httpRequestHeaders + ("User-Agent" to userAgent)
+        return buildUpon()
+            .setUri(url.toUri())
+            .setHttpRequestHeaders(headers)
+            .build()
+    }
+
+    private fun onPlaybackDataSourceOpenSuccess(dataSpec: DataSpec) {
+        val mediaId = dataSpec.key?.removeSuffix("_diff") ?: return
+        if (mediaId.isLocalMediaId()) return
+        if (!streamRecovery.isCurrentStream(mediaId, dataSpec.uri.toString())) return
+        if (forceStreamResolution.remove(mediaId)) {
+            PlaybackDiagnostics.currentFor(mediaId)?.breadcrumb(
+                "STREAM_ACCEPTED_AT_DATASOURCE",
+                PlaybackRedactor.shortHash(dataSpec.uri.toString()),
+            )
+        }
+    }
+
     /**
      * Invalidates a stream resolution at the DataSource boundary, before Media3 can retry the
      * same signed URL through the normal player error path.
@@ -3485,12 +3524,13 @@ class MusicService :
         }
         val mediaId = dataSpec.key?.removeSuffix("_diff") ?: return
         if (mediaId.isLocalMediaId()) return
-        if (!streamRecovery.invalidateStreamAfterDataSourceFailure(mediaId)) return
+        if (!streamRecovery.rejectStreamAfterDataSourceFailure(mediaId, dataSpec.uri.toString())) return
 
         forceStreamResolution.add(mediaId)
         PlaybackDiagnostics.currentFor(mediaId)?.breadcrumb(
             "STREAM_RESOLUTION_INVALIDATED_AT_DATASOURCE",
-            "http_" + details.responseCode,
+            "http_" + details.responseCode + " candidate=" +
+                PlaybackRedactor.shortHash(dataSpec.uri.toString()),
         )
         scope.launch { invalidateVolatileStreamCache(mediaId) }
         Timber.tag(TAG).w(
@@ -3510,6 +3550,11 @@ class MusicService :
                     PlaybackDiagnostics::currentFor,
                     if (invalidateRejectedStreams) {
                         this@MusicService::onPlaybackDataSourceHttpFailure
+                    } else {
+                        null
+                    },
+                    if (invalidateRejectedStreams) {
+                        this@MusicService::onPlaybackDataSourceOpenSuccess
                     } else {
                         null
                     },
@@ -3565,7 +3610,7 @@ class MusicService :
                         trace?.streamSelected(cached.itag, cached.mimeType, cached.bitrate)
                         trace?.breadcrumb("CACHE_ORIGIN", "download")
                         scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
-                        return@Factory dataSpec.withUri(cached.url.toUri())
+                        return@Factory dataSpec.withResolvedStream(cached.url, cached.userAgent)
                     }
                     // Fall through to fetch real URL since it's only partially downloaded
                 }
@@ -3578,7 +3623,7 @@ class MusicService :
                         trace?.breadcrumb("CACHE_ORIGIN", "player_preload")
                         trace?.breadcrumb("FIRST_BYTES_WARMED", CHUNK_LENGTH.toString())
                         scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
-                        return@Factory dataSpec.withUri(cached.url.toUri())
+                        return@Factory dataSpec.withResolvedStream(cached.url, cached.userAgent)
                     }
                     Timber.tag(TAG).w("Ghost cache entry for $mediaId, re-fetching")
                     playerCache.removeResource(mediaId)
@@ -3590,7 +3635,7 @@ class MusicService :
                     trace?.streamSelected(cached.itag, cached.mimeType, cached.bitrate)
                     trace?.breadcrumb("CACHE_ORIGIN", "stream_resolution")
                     scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
-                    return@Factory dataSpec.withUri(cached.url.toUri())
+                    return@Factory dataSpec.withResolvedStream(cached.url, cached.userAgent)
                 }
             } else {
                 Timber.tag("MusicService").i("BYPASSING CACHE for $mediaId")
@@ -3601,7 +3646,11 @@ class MusicService :
             var resolutionToken = streamRecovery.resolutionToken(mediaId)
             var resolvedPlayback: YTPlayerUtils.PlaybackData? = null
             for (attempt in 0..MAX_SUPERSEDED_STREAM_RESOLUTION_RETRIES) {
-                val candidate = resolvePlaybackDataForStream(mediaId, lockedQuality)
+                val candidate = resolvePlaybackDataForStream(
+                    mediaId,
+                    lockedQuality,
+                    skipPrimaryClient = forceStreamResolution.contains(mediaId),
+                )
                 when (
                     streamRecovery.cacheStream(
                         key = streamKey,
@@ -3613,10 +3662,14 @@ class MusicService :
                         itag = candidate.format.itag,
                         mimeType = candidate.format.mimeType,
                         bitrate = candidate.format.bitrate,
+                        clientName = candidate.streamClientName,
+                        clientVersion = candidate.streamClientVersion,
+                        userAgent = candidate.streamUserAgent,
+                        urlSource = candidate.streamUrlSource,
+                        hasPoToken = candidate.streamingPoTokenAttached,
                     )
                 ) {
                     StreamRecoveryCoordinator.CacheWriteResult.Stored -> {
-                        forceStreamResolution.remove(mediaId)
                         selectedFormatItags[mediaId] = candidate.format.itag
                         val excluded = excludedFormatItags[mediaId].orEmpty()
                         if (excluded.isNotEmpty()) {
@@ -3705,7 +3758,13 @@ class MusicService :
 
                 val streamUrl = nonNullPlayback.streamUrl
                 
-                return@Factory dataSpec.buildUpon().setKey(targetCacheKey).setUri(streamUrl.toUri()).build()
+                return@Factory dataSpec.buildUpon()
+                    .setKey(targetCacheKey)
+                    .setUri(streamUrl.toUri())
+                    .setHttpRequestHeaders(
+                        dataSpec.httpRequestHeaders + ("User-Agent" to nonNullPlayback.streamUserAgent),
+                    )
+                    .build()
             }
         }
     }
@@ -4855,6 +4914,11 @@ class MusicService :
                             itag = playback.format.itag,
                             mimeType = playback.format.mimeType,
                             bitrate = playback.format.bitrate,
+                            clientName = playback.streamClientName,
+                            clientVersion = playback.streamClientVersion,
+                            userAgent = playback.streamUserAgent,
+                            urlSource = playback.streamUrlSource,
+                            hasPoToken = playback.streamingPoTokenAttached,
                         )
                     ) {
                         StreamRecoveryCoordinator.CacheWriteResult.Stored -> {
@@ -4929,6 +4993,9 @@ class MusicService :
                 .setKey(mediaId)
                 .setPosition(0L)
                 .setLength(PRELOAD_FIRST_BYTES.toLong())
+                .setHttpRequestHeaders(
+                    cached.userAgent?.let { mapOf("User-Agent" to it) }.orEmpty(),
+                )
                 .build()
             var total = 0
             source.open(spec)
@@ -4943,9 +5010,14 @@ class MusicService :
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
-            Media3PlaybackDiagnostics.findHttpDetails(error)?.let(trace::httpStatus)
+            val httpDetails = Media3PlaybackDiagnostics.findHttpDetails(error)
+            httpDetails?.let(trace::httpStatus)
             trace.breadcrumb("FIRST_BYTES_WARMUP_FAILED", error::class.simpleName)
-            streamRecovery.invalidateStream(mediaId)
+            if (httpDetails != null) {
+                streamRecovery.rejectStreamAfterDataSourceFailure(mediaId, cached.url)
+            } else {
+                streamRecovery.invalidateStream(mediaId)
+            }
         } finally {
             runCatching { source.close() }
         }

@@ -73,6 +73,7 @@ constructor(
     private data class CachedDownloadUrl(
         val url: String,
         val expiresAtMs: Long,
+        val userAgent: String,
     )
 
     private val songUrlCache = ConcurrentHashMap<String, CachedDownloadUrl>()
@@ -186,7 +187,12 @@ constructor(
             songUrlCache["${mediaId}_${downloadQuality.value.name}"]
                 ?.takeIf { it.expiresAtMs > System.currentTimeMillis() + DOWNLOAD_URL_SAFETY_MARGIN_MS }
                 ?.let {
-                return@Factory dataSpec.withUri(it.url.toUri())
+                return@Factory dataSpec.buildUpon()
+                    .setUri(it.url.toUri())
+                    .setHttpRequestHeaders(
+                        dataSpec.httpRequestHeaders + ("User-Agent" to it.userAgent),
+                    )
+                    .build()
             }
 
             // DownloadManager's ResolvingDataSource API is synchronous. This is isolated to
@@ -208,8 +214,14 @@ constructor(
             songUrlCache["${mediaId}_${downloadQuality.value.name}"] = CachedDownloadUrl(
                 url = streamUrl,
                 expiresAtMs = System.currentTimeMillis() + playbackData.streamExpiresInSeconds * 1000L,
+                userAgent = playbackData.streamUserAgent,
             )
-            dataSpec.withUri(streamUrl.toUri())
+            dataSpec.buildUpon()
+                .setUri(streamUrl.toUri())
+                .setHttpRequestHeaders(
+                    dataSpec.httpRequestHeaders + ("User-Agent" to playbackData.streamUserAgent),
+                )
+                .build()
         }
 
     val downloadNotificationHelper =

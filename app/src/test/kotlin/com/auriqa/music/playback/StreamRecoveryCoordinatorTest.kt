@@ -185,22 +185,47 @@ class StreamRecoveryCoordinatorTest {
     }
 
     @Test
-    fun dataSourceRejectionInvalidatesOnlyOncePerPlaybackGeneration() {
+    fun duplicateDataSourceRejectionForTheSameUrlInvalidatesOnlyOnce() {
         coordinator.beginPlayback(snapshot.mediaId, force = true)
         cache("https://cdn.example/stale", nowMs + 60_000L)
-
-        assertTrue(coordinator.invalidateStreamAfterDataSourceFailure(snapshot.mediaId))
+        assertTrue(coordinator.rejectStreamAfterDataSourceFailure(snapshot.mediaId, "https://cdn.example/stale"))
+        assertFalse(coordinator.rejectStreamAfterDataSourceFailure(snapshot.mediaId, "https://cdn.example/stale"))
         assertNull(coordinator.cachedStream(key))
+    }
 
-        cache("https://cdn.example/fresh", nowMs + 60_000L)
-        assertFalse(coordinator.invalidateStreamAfterDataSourceFailure(snapshot.mediaId))
-        assertEquals("https://cdn.example/fresh", coordinator.cachedStream(key)?.url)
-
+    @Test
+    fun freshUrlCanBeRejectedInTheSamePlaybackGeneration() {
         coordinator.beginPlayback(snapshot.mediaId, force = true)
-        cache("https://cdn.example/next", nowMs + 60_000L)
-
-        assertTrue(coordinator.invalidateStreamAfterDataSourceFailure(snapshot.mediaId))
+        cache("https://cdn.example/A", nowMs + 60_000L)
+        assertTrue(coordinator.rejectStreamAfterDataSourceFailure(snapshot.mediaId, "https://cdn.example/A"))
+        cache("https://cdn.example/B", nowMs + 60_000L)
+        assertTrue(coordinator.rejectStreamAfterDataSourceFailure(snapshot.mediaId, "https://cdn.example/B"))
         assertNull(coordinator.cachedStream(key))
+    }
+
+    @Test
+    fun lateRejectionFromOldUrlCannotEvictNewerCandidate() {
+        coordinator.beginPlayback(snapshot.mediaId, force = true)
+        cache("https://cdn.example/A", nowMs + 60_000L)
+        assertTrue(coordinator.rejectStreamAfterDataSourceFailure(snapshot.mediaId, "https://cdn.example/A"))
+        cache("https://cdn.example/B", nowMs + 60_000L)
+        assertFalse(coordinator.rejectStreamAfterDataSourceFailure(snapshot.mediaId, "https://cdn.example/A"))
+        assertEquals("https://cdn.example/B", coordinator.cachedStream(key)?.url)
+    }
+
+    @Test
+    fun playerErrorForAlreadyRejectedUrlDoesNotEvictNewerCandidate() {
+        coordinator.beginPlayback(snapshot.mediaId, force = true)
+        cache("https://cdn.example/A", nowMs + 60_000L)
+        assertTrue(coordinator.rejectStreamAfterDataSourceFailure(snapshot.mediaId, "https://cdn.example/A"))
+        cache("https://cdn.example/B", nowMs + 60_000L)
+        val decision = coordinator.onFailure(
+            snapshot,
+            StreamRecoveryCoordinator.FailureKind.RejectedStream,
+            streamResolutionAlreadyHandled = true,
+        )
+        assertTrue(decision is StreamRecoveryCoordinator.RecoveryDecision.Recover)
+        assertEquals("https://cdn.example/B", coordinator.cachedStream(key)?.url)
     }
 
     @Test
@@ -342,6 +367,11 @@ class StreamRecoveryCoordinatorTest {
                 itag = 251,
                 mimeType = "audio/webm",
                 bitrate = 128_000,
+                clientName = "VISIONOS",
+                clientVersion = "1.02",
+                userAgent = "test-agent",
+                urlSource = "RawPlayer",
+                hasPoToken = false,
             ),
         )
 
@@ -351,6 +381,11 @@ class StreamRecoveryCoordinatorTest {
         assertEquals(251, cached?.itag)
         assertEquals("audio/webm", cached?.mimeType)
         assertEquals(128_000, cached?.bitrate)
+        assertEquals("VISIONOS", cached?.clientName)
+        assertEquals("1.02", cached?.clientVersion)
+        assertEquals("test-agent", cached?.userAgent)
+        assertEquals("RawPlayer", cached?.urlSource)
+        assertFalse(cached?.hasPoToken ?: true)
     }
 
     @Test
