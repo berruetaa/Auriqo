@@ -3040,6 +3040,10 @@ class MusicService :
                     preloadJob?.cancel()
                     preloadJob = null
                 }
+                // Cancellation is cooperative. Tombstone every discarded look-ahead token too,
+                // so a coroutine that just left its final suspension cannot commit a stale URL.
+                streamRecovery.retainOnly(mediaId)
+                trace?.breadcrumb("PRELOAD_TOKENS_TOMBSTONED_FOR_RECOVERY")
                 forceStreamResolution.add(mediaId)
                 trace?.recoveryStart(
                     attempt = 1,
