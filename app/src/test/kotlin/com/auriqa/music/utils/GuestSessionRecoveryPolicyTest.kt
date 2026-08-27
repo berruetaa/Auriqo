@@ -10,6 +10,19 @@ import org.junit.Test
 
 class GuestSessionRecoveryPolicyTest {
     @Test
+    fun speculativeBackgroundResolutionNeverRotatesGuestIdentity() {
+        assertFalse(
+            YTPlayerUtils.shouldRotateGuestSessionAfterFailure(
+                PlaybackResolutionException(
+                    message = "CDN validation failed with HTTP 403",
+                    hint = PlaybackFailureHint.STREAM_URL_EXPIRED,
+                ),
+                allowIdentityMutation = false,
+            ),
+        )
+    }
+
+    @Test
     fun cdn403EvidenceCanRotateGuestSession() {
         assertTrue(
             YTPlayerUtils.shouldRotateGuestSessionAfterFailure(

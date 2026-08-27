@@ -126,8 +126,11 @@ object YTPlayerUtils {
         validatePrimaryCandidate: Boolean,
     ): Boolean = clientIndex == -1 && !validatePrimaryCandidate
 
-    internal fun shouldRotateGuestSessionAfterFailure(error: Throwable?): Boolean {
-        if (error == null) return false
+    internal fun shouldRotateGuestSessionAfterFailure(
+        error: Throwable?,
+        allowIdentityMutation: Boolean = true,
+    ): Boolean {
+        if (!allowIdentityMutation || error == null) return false
 
         var cursor: Throwable? = error
         var resolutionFailure: PlaybackResolutionException? = null
@@ -194,6 +197,7 @@ object YTPlayerUtils {
         isDownload: Boolean = false,
         excludedItags: Set<Int> = emptySet(),
         skipPrimaryClient: Boolean = false,
+        allowGuestSessionRotation: Boolean = true,
     ): Result<PlaybackData> {
         val trace = PlaybackDiagnostics.currentFor(videoId)
         trace?.playerResponseStart()
@@ -211,7 +215,11 @@ object YTPlayerUtils {
         )
         val firstFailure = firstAttempt.exceptionOrNull()
         val shouldRotateGuest =
-            YouTube.cookie == null && shouldRotateGuestSessionAfterFailure(firstFailure)
+            YouTube.cookie == null &&
+                shouldRotateGuestSessionAfterFailure(
+                    firstFailure,
+                    allowIdentityMutation = allowGuestSessionRotation,
+                )
         val result = if (firstAttempt.isFailure && shouldRotateGuest) {
             Timber.tag(TAG).w("Playback failed with guest-session evidence. Rotating session and retrying...")
             PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
@@ -238,8 +246,12 @@ object YTPlayerUtils {
             if (firstAttempt.isFailure && YouTube.cookie == null) {
                 PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
                     "GUEST_SESSION_ROTATION_SKIPPED",
-                    (firstFailure as? PlaybackResolutionException)?.hint?.name
-                        ?: firstFailure?.javaClass?.simpleName,
+                    if (!allowGuestSessionRotation) {
+                        "background_resolution"
+                    } else {
+                        (firstFailure as? PlaybackResolutionException)?.hint?.name
+                            ?: firstFailure?.javaClass?.simpleName
+                    },
                 )
             }
             firstAttempt

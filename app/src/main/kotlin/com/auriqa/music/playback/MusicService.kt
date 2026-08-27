@@ -5011,6 +5011,7 @@ class MusicService :
                     knownArtist = knownArtist,
                     knownTitle = dbSong?.song?.title,
                     knownDurationMs = dbSong?.song?.duration?.let { if (it > 0) it * 1000L else null },
+                    allowGuestSessionRotation = false,
                 )
 
                 playbackData.getOrNull()?.let { playback ->
