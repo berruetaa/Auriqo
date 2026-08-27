@@ -592,6 +592,7 @@ class MusicService :
 
     
     private val bypassCacheForQualityChange = mutableSetOf<String>()
+    private val forceStreamResolution = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val selectedFormatItags = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val excludedFormatItags = java.util.concurrent.ConcurrentHashMap<String, MutableSet<Int>>()
 
@@ -1310,6 +1311,7 @@ class MusicService :
         lastPlaybackFailure = null
         excludedFormatItags.clear()
         selectedFormatItags.clear()
+        forceStreamResolution.remove(mediaId)
         val trace = PlaybackDiagnostics.start(mediaId, "manual_retry")
         trace.breadcrumb("USER_RETRY")
         excludedFormatItags.remove(mediaId)
@@ -2933,6 +2935,7 @@ class MusicService :
             is StreamRecoveryCoordinator.RecoveryDecision.Recover -> {
                 retryJob?.cancel()
                 waitingForNetworkConnection.value = false
+                forceStreamResolution.add(mediaId)
                 trace?.recoveryStart(
                     attempt = 1,
                     maxAttempts = 1,
@@ -3485,7 +3488,8 @@ class MusicService :
 
 
             
-            var shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
+            val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId) ||
+                forceStreamResolution.contains(mediaId)
 
             val cachedLength = androidx.media3.datasource.cache.ContentMetadata.getContentLength(downloadCache.getContentMetadata(mediaId))
                 .takeIf { it != androidx.media3.common.C.LENGTH_UNSET.toLong() } ?: -1L
@@ -3548,7 +3552,7 @@ class MusicService :
                     return@Factory dataSpec.withUri(cached.url.toUri())
                 }
             } else {
-                Timber.tag("MusicService").i("BYPASSING CACHE for $mediaId due to quality change")
+                Timber.tag("MusicService").i("BYPASSING CACHE for $mediaId")
             }
 
             trace?.resolutionCacheMiss(if (shouldBypassCache) "quality_bypass" else "not_cached")
@@ -3571,6 +3575,7 @@ class MusicService :
                     )
                 ) {
                     StreamRecoveryCoordinator.CacheWriteResult.Stored -> {
+                        forceStreamResolution.remove(mediaId)
                         selectedFormatItags[mediaId] = candidate.format.itag
                         val excluded = excludedFormatItags[mediaId].orEmpty()
                         if (excluded.isNotEmpty()) {
