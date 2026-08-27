@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -138,13 +139,14 @@ fun PlaybackError(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Button(
                 onClick = retry,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(
                     painter = painterResource(R.drawable.replay),
@@ -154,11 +156,22 @@ fun PlaybackError(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(text = stringResource(R.string.retry))
             }
-            OutlinedButton(onClick = { showDetails = !showDetails }) {
-                Text(text = if (showDetails) "Hide" else "Details")
-            }
-            OutlinedButton(onClick = { clipboard.setText(AnnotatedString(report)) }) {
-                Text(text = "Copy debug report")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { showDetails = !showDetails },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(text = if (showDetails) "Hide details" else "Details")
+                }
+                OutlinedButton(
+                    onClick = { clipboard.setText(AnnotatedString(report)) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(text = "Copy report")
+                }
             }
         }
     }

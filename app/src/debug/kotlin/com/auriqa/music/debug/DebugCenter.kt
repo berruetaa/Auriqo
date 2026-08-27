@@ -8,6 +8,7 @@ import android.os.Build
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -16,8 +17,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -59,6 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -107,7 +111,7 @@ fun DebugCenter(navController: NavController, initialTraceId: String? = null) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Auriqo Debug Center") },
+                title = { Text("Debug Center") },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -280,8 +284,13 @@ private fun RuntimeCard(runtime: DebugRuntimeSnapshot?) {
 private fun LiveTraceCard(selected: DebugTraceSnapshot?, traces: List<DebugTraceSnapshot>, onSelect: (String) -> Unit) {
     InfoCard {
         Text("Last traces", fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            traces.takeLast(5).forEach { trace ->
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+        ) {
+            traces.takeLast(8).forEach { trace ->
                 FilterChip(
                     selected = selected?.traceId == trace.traceId,
                     onClick = { onSelect(trace.traceId) },
@@ -365,6 +374,17 @@ private fun TimelineCard(trace: DebugTraceSnapshot?) {
         if (trace == null) {
             Text("N/A — no trace in the bounded buffer")
         } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("${trace.events.size} events", fontWeight = FontWeight.Bold)
+                Text(
+                    "Tap a row to expand",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             trace.events.forEach { EventRow(it) }
         }
     }
@@ -500,13 +520,24 @@ private fun ErrorHistoryCard(traces: List<DebugTraceSnapshot>, onSelect: (String
 
 @Composable
 private fun EventRow(event: PlaybackDiagnosticEvent) {
+    var expanded by rememberSaveable(event.traceId, event.elapsedMs, event.type) { mutableStateOf(false) }
+    val isAttentionEvent =
+        event is PlaybackDiagnosticEvent.HttpStatus ||
+            event is PlaybackDiagnosticEvent.RecoveryStart ||
+            event is PlaybackDiagnosticEvent.RecoveryEnd ||
+            event is PlaybackDiagnosticEvent.TerminalFailure
+
     Text(
         text = "${event.elapsedMs.toString().padStart(5)} ms  ${event.type}  ${event.toLogLine().substringAfter(event.type).trim()}",
         fontFamily = FontFamily.Monospace,
-        fontSize = 10.sp,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        maxLines = 3,
-        overflow = TextOverflow.Ellipsis,
+        fontSize = 11.sp,
+        color = if (isAttentionEvent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+            .padding(vertical = 5.dp),
+        maxLines = if (expanded) Int.MAX_VALUE else 2,
+        overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
     )
 }
 
@@ -520,7 +551,10 @@ private fun ChaosCard(
 ) {
     InfoCard {
         Text("One-shot by default. Every pending fault is shown above as CHAOS ACTIVE.", style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             listOf(403, 404, 410, 429, 500, 503).forEach { status ->
                 OutlinedButton(onClick = {
                     chaos.arm("Force HTTP $status", DebugFaultPoint.DATASOURCE_OPEN, DebugFaultSpec(DebugFaultSpec.Kind.HTTP_STATUS, httpStatus = status))
@@ -539,16 +573,25 @@ private fun ChaosCard(
                 chaos.arm("Pretend offline", DebugFaultPoint.PLAYER_RESPONSE, DebugFaultSpec(DebugFaultSpec.Kind.OFFLINE, offlineMs.toLongOrNull()?.coerceAtLeast(0L) ?: 5_000L))
             }) { Text("Offline") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             OutlinedButton(onClick = { chaos.arm("Resolution timeout", DebugFaultPoint.PLAYER_RESPONSE, DebugFaultSpec(DebugFaultSpec.Kind.RESOLUTION_TIMEOUT, delayMs.toLongOrNull() ?: 5_000L)) }) { Text("Resolver timeout") }
             OutlinedButton(onClick = { chaos.arm("DataSource timeout", DebugFaultPoint.DATASOURCE_OPEN, DebugFaultSpec(DebugFaultSpec.Kind.DATASOURCE_TIMEOUT, delayMs.toLongOrNull() ?: 5_000L)) }) { Text("CDN timeout") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             OutlinedButton(onClick = { chaos.arm("Expire stream", DebugFaultPoint.PLAYER_RESPONSE, DebugFaultSpec(DebugFaultSpec.Kind.EXPIRE_STREAM)) }) { Text("Expire URL") }
             OutlinedButton(onClick = { chaos.arm("Invalidate extractor", DebugFaultPoint.PLAYER_RESPONSE, DebugFaultSpec(DebugFaultSpec.Kind.INVALIDATE_EXTRACTOR)) }) { Text("Extractor") }
             OutlinedButton(onClick = { chaos.arm("Signature failure", DebugFaultPoint.PLAYER_RESPONSE, DebugFaultSpec(DebugFaultSpec.Kind.SIGNATURE_FAILURE)) }) { Text("Signature") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             OutlinedButton(onClick = { chaos.arm("N transform failure", DebugFaultPoint.PLAYER_RESPONSE, DebugFaultSpec(DebugFaultSpec.Kind.N_TRANSFORM_FAILURE)) }) { Text("N transform") }
             OutlinedButton(onClick = { chaos.arm("PoToken failure", DebugFaultPoint.PLAYER_RESPONSE, DebugFaultSpec(DebugFaultSpec.Kind.POTOKEN_FAILURE)) }) { Text("PoToken") }
             OutlinedButton(onClick = { chaos.arm("Format failure", DebugFaultPoint.PLAYER_RESPONSE, DebugFaultSpec(DebugFaultSpec.Kind.FORMAT_FAILURE)) }) { Text("Format") }
@@ -612,14 +655,24 @@ private fun InfoCard(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 private fun KeyValue(key: String, value: Any?) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(key, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.width(8.dp))
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            key,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(0.42f),
+        )
+        Spacer(Modifier.width(10.dp))
         Text(
             PlaybackRedactor.sanitizeScalar(value),
             style = MaterialTheme.typography.bodySmall,
             fontFamily = FontFamily.Monospace,
-            maxLines = 3,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(0.58f),
+            maxLines = 4,
             overflow = TextOverflow.Ellipsis,
         )
     }

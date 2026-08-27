@@ -73,14 +73,23 @@ fun DebugLogScreen(navController: NavController) {
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 items(logs, key = { it.id }) { entry ->
-                    Column(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 5.dp),
+                    ) {
                         Text(
                             "${entry.formattedTime} ${entry.levelStr} ${entry.tag ?: "?"}",
                             color = MaterialTheme.colorScheme.primary,
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                         )
-                        Text(entry.fullMessage, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        Text(
+                            entry.fullMessage,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                        )
                     }
                 }
             }
