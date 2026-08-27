@@ -37,8 +37,8 @@ object BotDetectionMitigator {
 
     
     private val BOT_ERROR_SIGNATURES = listOf(
-        "Sign in to confirm",
         "confirm you're not a bot",
+        "confirm you’re not a bot",
         "automated queries",
         "Error 2000",
         "403",

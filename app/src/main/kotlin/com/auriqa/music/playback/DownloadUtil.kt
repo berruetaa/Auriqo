@@ -206,6 +206,7 @@ constructor(
             // DownloadManager's ResolvingDataSource API is synchronous. This is isolated to
             // offline download creation; normal playback resolves ahead of Media3 on the service
             // path and never reaches this adapter.
+            val resolvingNetworkHandle = connectivityManager.activeNetwork?.networkHandle
             val playbackData = runBlocking(Dispatchers.IO) {
                 YTPlayerUtils.playerResponseForPlayback(
                     mediaId,
@@ -222,13 +223,16 @@ constructor(
             if (playbackData.streamContextGeneration != YouTube.streamContextGeneration) {
                 throw java.io.IOException("Download stream context changed after resolution")
             }
+            if (connectivityManager.activeNetwork?.networkHandle != resolvingNetworkHandle) {
+                throw java.io.IOException("Default network changed while resolving download stream")
+            }
 
             songUrlCache["${mediaId}_${downloadQuality.value.name}"] = CachedDownloadUrl(
                 url = streamUrl,
                 expiresAtMs = System.currentTimeMillis() + playbackData.streamExpiresInSeconds * 1000L,
                 userAgent = playbackData.streamUserAgent,
                 sessionGeneration = playbackData.streamContextGeneration,
-                networkHandle = connectivityManager.activeNetwork?.networkHandle,
+                networkHandle = resolvingNetworkHandle,
             )
             dataSpec.buildUpon()
                 .setUri(streamUrl.toUri())

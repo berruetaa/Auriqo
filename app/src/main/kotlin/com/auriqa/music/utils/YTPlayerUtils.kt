@@ -125,6 +125,62 @@ object YTPlayerUtils {
         clientIndex: Int,
         validatePrimaryCandidate: Boolean,
     ): Boolean = clientIndex == -1 && !validatePrimaryCandidate
+
+    internal fun shouldRotateGuestSessionAfterFailure(error: Throwable?): Boolean {
+        if (error == null) return false
+
+        var cursor: Throwable? = error
+        var resolutionFailure: PlaybackResolutionException? = null
+        val evidence = StringBuilder()
+        while (cursor != null) {
+            when (cursor) {
+                is kotlinx.coroutines.CancellationException -> return false
+                is java.net.UnknownHostException,
+                is java.net.ConnectException,
+                is java.net.SocketTimeoutException,
+                is java.net.SocketException,
+                is java.io.InterruptedIOException -> return false
+            }
+            if (resolutionFailure == null && cursor is PlaybackResolutionException) {
+                resolutionFailure = cursor
+            }
+            cursor.message?.let { evidence.append(' ').append(it) }
+            cursor = cursor.cause
+        }
+
+        resolutionFailure?.playabilityReason?.let { evidence.append(' ').append(it) }
+        val text = evidence.toString()
+        if (BotDetectionMitigator.isGeoError(text)) return false
+        if (BotDetectionMitigator.isBotDetectionError(text)) return true
+
+        return when (resolutionFailure?.hint) {
+            PlaybackFailureHint.PLAYER_RESPONSE_FAILED,
+            PlaybackFailureHint.POTOKEN_FAILED,
+            PlaybackFailureHint.STREAM_URL_EXPIRED -> true
+
+            PlaybackFailureHint.TIMEOUT,
+            PlaybackFailureHint.CONNECTION_FAILED,
+            PlaybackFailureHint.OFFLINE,
+            PlaybackFailureHint.SUPERSEDED_RESOLUTION,
+            PlaybackFailureHint.FORMAT_NOT_FOUND,
+            PlaybackFailureHint.PLAYER_JS_NOT_FOUND,
+            PlaybackFailureHint.SIGNATURE_FUNCTION_NOT_FOUND,
+            PlaybackFailureHint.SIGNATURE_DECIPHER_FAILED,
+            PlaybackFailureHint.N_TRANSFORM_NOT_FOUND,
+            PlaybackFailureHint.N_TRANSFORM_FAILED,
+            PlaybackFailureHint.CONTENT_TYPE_INVALID,
+            PlaybackFailureHint.CACHE_CORRUPTED,
+            PlaybackFailureHint.CACHE_POSITION_OUT_OF_RANGE,
+            PlaybackFailureHint.CONTAINER_MALFORMED,
+            PlaybackFailureHint.CONTAINER_UNSUPPORTED,
+            PlaybackFailureHint.DECODER_INIT_FAILED,
+            PlaybackFailureHint.DECODING_FAILED,
+            PlaybackFailureHint.AUDIO_TRACK_INIT_FAILED,
+            PlaybackFailureHint.AUDIO_TRACK_WRITE_FAILED,
+            PlaybackFailureHint.UNKNOWN,
+            null -> false
+        }
+    }
     
     suspend fun playerResponseForPlayback(
         videoId: String,
@@ -153,9 +209,16 @@ object YTPlayerUtils {
             skipPrimaryClient,
             validatePrimaryCandidate = isDownload,
         )
-        val result = if (firstAttempt.isFailure && YouTube.cookie == null) {
-            Timber.tag(TAG).w("Playback failed for guest. Rotating session and retrying...")
-            PlaybackLogManager.log(PlaybackLogLevel.BOT, "Playback failed for guest", "Triggering bot detection mitigation (rotating guest session)")
+        val firstFailure = firstAttempt.exceptionOrNull()
+        val shouldRotateGuest =
+            YouTube.cookie == null && shouldRotateGuestSessionAfterFailure(firstFailure)
+        val result = if (firstAttempt.isFailure && shouldRotateGuest) {
+            Timber.tag(TAG).w("Playback failed with guest-session evidence. Rotating session and retrying...")
+            PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                "GUEST_SESSION_ROTATION",
+                "reason=${(firstFailure as? PlaybackResolutionException)?.hint ?: "bot_evidence"}",
+            )
+            PlaybackLogManager.log(PlaybackLogLevel.BOT, "Guest playback evidence", "Rotating visitorData once")
             BotDetectionMitigator.rotateGuestSession()
             val retryResult = resolvePlaybackData(
                 videoId,
@@ -172,6 +235,13 @@ object YTPlayerUtils {
             retryResult.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
             retryResult
         } else {
+            if (firstAttempt.isFailure && YouTube.cookie == null) {
+                PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                    "GUEST_SESSION_ROTATION_SKIPPED",
+                    (firstFailure as? PlaybackResolutionException)?.hint?.name
+                        ?: firstFailure?.javaClass?.simpleName,
+                )
+            }
             firstAttempt
         }
         result.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
