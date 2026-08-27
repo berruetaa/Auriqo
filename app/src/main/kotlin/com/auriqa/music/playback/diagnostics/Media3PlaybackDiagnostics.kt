@@ -3,6 +3,7 @@ package com.auriqo.music.playback.diagnostics
 import android.net.Uri
 import androidx.media3.common.PlaybackException
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import com.auriqo.music.debug.DebugFaultPoint
 import com.auriqo.music.debug.DebugFaultSpec
@@ -182,6 +183,7 @@ object Media3PlaybackDiagnostics {
 class PlaybackTracingDataSource(
     private val upstream: DataSource,
     private val traceProvider: (String?) -> PlaybackTraceRecorder?,
+    private val onHttpFailure: ((DataSpec, PlaybackHttpDetails) -> Unit)? = null,
 ) : DataSource {
     private var trace: PlaybackTraceRecorder? = null
 
@@ -189,7 +191,7 @@ class PlaybackTracingDataSource(
         upstream.addTransferListener(transferListener)
     }
 
-    override fun open(dataSpec: androidx.media3.datasource.DataSpec): Long {
+    override fun open(dataSpec: DataSpec): Long {
         val diagnosticMediaId = dataSpec.key?.removeSuffix("_diff")
         trace = traceProvider(diagnosticMediaId)
         trace?.attachMediaId(diagnosticMediaId)
@@ -220,9 +222,13 @@ class PlaybackTracingDataSource(
                 upstream.open(dataSpec)
             }.also { trace?.dataSourceOpenEnd(success = true) }
         } catch (error: Throwable) {
+            val httpDetails = Media3PlaybackDiagnostics.findHttpDetails(error)
             trace?.let {
-                Media3PlaybackDiagnostics.findHttpDetails(error)?.let(it::httpStatus)
+                httpDetails?.let(it::httpStatus)
                 it.dataSourceOpenEnd(success = false)
+            }
+            if (httpDetails != null) {
+                runCatching { onHttpFailure?.invoke(dataSpec, httpDetails) }
             }
             throw error
         }
@@ -236,8 +242,13 @@ class PlaybackTracingDataSource(
     class Factory(
         private val upstreamFactory: DataSource.Factory,
         private val traceProvider: (String?) -> PlaybackTraceRecorder?,
+        private val onHttpFailure: ((DataSpec, PlaybackHttpDetails) -> Unit)? = null,
     ) : DataSource.Factory {
         override fun createDataSource(): DataSource =
-            PlaybackTracingDataSource(upstreamFactory.createDataSource(), traceProvider)
+            PlaybackTracingDataSource(
+                upstreamFactory.createDataSource(),
+                traceProvider,
+                onHttpFailure,
+            )
     }
 }

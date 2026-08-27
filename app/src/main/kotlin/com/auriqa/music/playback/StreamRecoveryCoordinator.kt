@@ -110,6 +110,7 @@ internal class StreamRecoveryCoordinator(
     private val lock = Any()
     private val streams = mutableMapOf<StreamKey, CachedStream>()
     private val resolutionGenerations = mutableMapOf<String, Long>()
+    private val dataSourceRejectionGenerations = mutableMapOf<String, Long>()
 
     private var activeMediaId: String? = null
     private var attemptedRecoveryFor: String? = null
@@ -180,6 +181,12 @@ internal class StreamRecoveryCoordinator(
     }
 
     fun retainOnly(mediaId: String?) = synchronized(lock) {
+        val rejectionIterator = dataSourceRejectionGenerations.keys.iterator()
+        while (rejectionIterator.hasNext()) {
+            if (rejectionIterator.next() != mediaId) {
+                rejectionIterator.remove()
+            }
+        }
         // Tokens may have been issued for a preload that has not reached the cache yet. Keep
         // their generation tombstones too, otherwise that late completion could reinsert a
         // stream for an item that was just discarded.
@@ -198,7 +205,23 @@ internal class StreamRecoveryCoordinator(
 
     /** Invalidates all quality variants for this one media id, never the download cache. */
     fun invalidateStream(mediaId: String) = synchronized(lock) {
+        dataSourceRejectionGenerations.remove(mediaId)
         invalidateStreamLocked(mediaId)
+    }
+
+    /**
+     * Invalidates a URL as soon as its DataSource receives a rejected HTTP response. Media3 may
+     * reopen the same DataSpec several times before delivering the player error, so only the
+     * first rejection in one playback generation is allowed to trigger a fresh resolution.
+     */
+    fun invalidateStreamAfterDataSourceFailure(mediaId: String): Boolean = synchronized(lock) {
+        val playbackGeneration = recoveryGeneration
+        if (dataSourceRejectionGenerations[mediaId] == playbackGeneration) {
+            return@synchronized false
+        }
+        dataSourceRejectionGenerations[mediaId] = playbackGeneration
+        invalidateStreamLocked(mediaId)
+        true
     }
 
     /** Arms a new user/media-item playback generation. A successful READY state must not call this. */

@@ -294,7 +294,9 @@ class MusicService :
         val targetMediaId: String,
     )
     private var prebuffered: PrebufferedTransition? = null
-    private val analysisDataSourceFactory by lazy { createDataSourceFactory() }
+    private val analysisDataSourceFactory by lazy {
+        createDataSourceFactory(invalidateRejectedStreams = false)
+    }
     private val beatAnalysisJobs = java.util.Collections.synchronizedMap(mutableMapOf<String, BeatAnalysisHandle>())
     private val immediateBeatAnalysisMutex = kotlinx.coroutines.sync.Mutex()
     private val lookaheadBeatAnalysisMutex = kotlinx.coroutines.sync.Mutex()
@@ -2975,6 +2977,7 @@ class MusicService :
             }
 
             StreamRecoveryCoordinator.RecoveryDecision.Exhausted -> {
+                forceStreamResolution.remove(mediaId)
                 scope.launch { invalidateVolatileStreamCache(mediaId) }
                 Timber.tag(TAG).w("Fresh stream also failed for $mediaId; not retrying again")
                 val exhaustedFailure = (diagnosticFailure ?: lastPlaybackFailure)?.copy(
@@ -3465,13 +3468,51 @@ class MusicService :
         }
     }
 
-    private fun createDataSourceFactory(): DataSource.Factory {
+    /**
+     * Invalidates a stream resolution at the DataSource boundary, before Media3 can retry the
+     * same signed URL through the normal player error path.
+     */
+    private fun onPlaybackDataSourceHttpFailure(
+        dataSpec: DataSpec,
+        details: com.auriqo.music.playback.diagnostics.PlaybackHttpDetails,
+    ) {
+        if (details.responseCode != 403 &&
+            details.responseCode != 404 &&
+            details.responseCode != 410 &&
+            details.responseCode != 416
+        ) {
+            return
+        }
+        val mediaId = dataSpec.key?.removeSuffix("_diff") ?: return
+        if (mediaId.isLocalMediaId()) return
+        if (!streamRecovery.invalidateStreamAfterDataSourceFailure(mediaId)) return
+
+        forceStreamResolution.add(mediaId)
+        PlaybackDiagnostics.currentFor(mediaId)?.breadcrumb(
+            "STREAM_RESOLUTION_INVALIDATED_AT_DATASOURCE",
+            "http_" + details.responseCode,
+        )
+        scope.launch { invalidateVolatileStreamCache(mediaId) }
+        Timber.tag(TAG).w(
+            "Invalidated rejected stream resolution for " + mediaId +
+                " at DataSource open: HTTP " + details.responseCode,
+        )
+    }
+
+    private fun createDataSourceFactory(
+        invalidateRejectedStreams: Boolean = true,
+    ): DataSource.Factory {
         return ResolvingDataSource.Factory(
             DefaultDataSource.Factory(
                 this,
                 PlaybackTracingDataSource.Factory(
                     createCacheDataSource(),
                     PlaybackDiagnostics::currentFor,
+                    if (invalidateRejectedStreams) {
+                        this@MusicService::onPlaybackDataSourceHttpFailure
+                    } else {
+                        null
+                    },
                 ),
             )
         ) { dataSpec ->

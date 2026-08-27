@@ -5,6 +5,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -180,6 +181,25 @@ class StreamRecoveryCoordinatorTest {
                 oldResolution,
             ),
         )
+        assertNull(coordinator.cachedStream(key))
+    }
+
+    @Test
+    fun dataSourceRejectionInvalidatesOnlyOncePerPlaybackGeneration() {
+        coordinator.beginPlayback(snapshot.mediaId, force = true)
+        cache("https://cdn.example/stale", nowMs + 60_000L)
+
+        assertTrue(coordinator.invalidateStreamAfterDataSourceFailure(snapshot.mediaId))
+        assertNull(coordinator.cachedStream(key))
+
+        cache("https://cdn.example/fresh", nowMs + 60_000L)
+        assertFalse(coordinator.invalidateStreamAfterDataSourceFailure(snapshot.mediaId))
+        assertEquals("https://cdn.example/fresh", coordinator.cachedStream(key)?.url)
+
+        coordinator.beginPlayback(snapshot.mediaId, force = true)
+        cache("https://cdn.example/next", nowMs + 60_000L)
+
+        assertTrue(coordinator.invalidateStreamAfterDataSourceFailure(snapshot.mediaId))
         assertNull(coordinator.cachedStream(key))
     }
 
