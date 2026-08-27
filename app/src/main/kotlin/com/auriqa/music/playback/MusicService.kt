@@ -3010,6 +3010,7 @@ class MusicService :
                 snapshot,
                 failureKind,
                 streamResolutionAlreadyHandled = exactRejectedCandidateHandled,
+                failedCandidate = failedDataSpec?.uri?.toString(),
             )
         ) {
             is StreamRecoveryCoordinator.RecoveryDecision.Recover -> {

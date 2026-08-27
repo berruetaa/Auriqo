@@ -313,6 +313,66 @@ class StreamRecoveryCoordinatorTest {
     }
 
     @Test
+    fun duplicatePlayerErrorForRecoveredCandidateDoesNotConsumeSecondAttempt() {
+        coordinator.beginPlayback(snapshot.mediaId, force = true)
+        val first = coordinator.onFailure(
+            snapshot,
+            StreamRecoveryCoordinator.FailureKind.RejectedStream,
+            failedCandidate = "https://cdn.example/A",
+        ) as StreamRecoveryCoordinator.RecoveryDecision.Recover
+        coordinator.completeRecovery(first.token)
+
+        assertEquals(
+            StreamRecoveryCoordinator.RecoveryDecision.RecoveryInProgress,
+            coordinator.onFailure(
+                snapshot,
+                StreamRecoveryCoordinator.FailureKind.RejectedStream,
+                failedCandidate = "https://cdn.example/A",
+            ),
+        )
+    }
+
+    @Test
+    fun differentRejectedCandidateAfterRecoveryExhaustsBudget() {
+        coordinator.beginPlayback(snapshot.mediaId, force = true)
+        val first = coordinator.onFailure(
+            snapshot,
+            StreamRecoveryCoordinator.FailureKind.RejectedStream,
+            failedCandidate = "https://cdn.example/A",
+        ) as StreamRecoveryCoordinator.RecoveryDecision.Recover
+        coordinator.completeRecovery(first.token)
+
+        assertEquals(
+            StreamRecoveryCoordinator.RecoveryDecision.Exhausted,
+            coordinator.onFailure(
+                snapshot,
+                StreamRecoveryCoordinator.FailureKind.RejectedStream,
+                failedCandidate = "https://cdn.example/B",
+            ),
+        )
+    }
+
+    @Test
+    fun lateOldCandidateAfterFreshCandidateWasResolvedRemainsDeduplicated() {
+        coordinator.beginPlayback(snapshot.mediaId, force = true)
+        val first = coordinator.onFailure(
+            snapshot,
+            StreamRecoveryCoordinator.FailureKind.RejectedStream,
+            failedCandidate = "https://cdn.example/A",
+        ) as StreamRecoveryCoordinator.RecoveryDecision.Recover
+        coordinator.completeRecovery(first.token)
+
+        assertEquals(
+            StreamRecoveryCoordinator.RecoveryDecision.RecoveryInProgress,
+            coordinator.onFailure(
+                snapshot,
+                StreamRecoveryCoordinator.FailureKind.RejectedStream,
+                failedCandidate = "https://cdn.example/A",
+            ),
+        )
+    }
+
+    @Test
     fun aNewPlaybackGenerationRearmsRecoveryForTheSameMediaId() {
         coordinator.beginPlayback(snapshot.mediaId)
         val first = coordinator.onFailure(

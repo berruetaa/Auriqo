@@ -124,6 +124,7 @@ internal class StreamRecoveryCoordinator(
     private var activeSessionGeneration = 0L
     private var activeNetworkGeneration = 0L
     private var attemptedRecoveryFor: String? = null
+    private var attemptedRecoveryCandidate: String? = null
     private var recoveryInProgress: RecoveryToken? = null
     private var recoveryGeneration = 0L
 
@@ -283,6 +284,7 @@ internal class StreamRecoveryCoordinator(
             }
             activeMediaId = mediaId
             attemptedRecoveryFor = null
+            attemptedRecoveryCandidate = null
             recoveryInProgress = null
             recoveryGeneration += 1
         }
@@ -323,6 +325,7 @@ internal class StreamRecoveryCoordinator(
         snapshot: PlaybackSnapshot,
         failure: FailureKind,
         streamResolutionAlreadyHandled: Boolean = false,
+        failedCandidate: String? = null,
     ): RecoveryDecision = synchronized(lock) {
         if (failure == FailureKind.Permanent) {
             return@synchronized RecoveryDecision.NotRecoverable
@@ -331,6 +334,7 @@ internal class StreamRecoveryCoordinator(
         if (activeMediaId != snapshot.mediaId) {
             activeMediaId = snapshot.mediaId
             attemptedRecoveryFor = null
+            attemptedRecoveryCandidate = null
             recoveryInProgress = null
             recoveryGeneration += 1
         }
@@ -346,10 +350,14 @@ internal class StreamRecoveryCoordinator(
         }
 
         if (attemptedRecoveryFor == snapshot.mediaId) {
+            if (failedCandidate != null && attemptedRecoveryCandidate == failedCandidate) {
+                return@synchronized RecoveryDecision.RecoveryInProgress
+            }
             return@synchronized RecoveryDecision.Exhausted
         }
 
         attemptedRecoveryFor = snapshot.mediaId
+        attemptedRecoveryCandidate = failedCandidate
         val token = RecoveryToken(snapshot.mediaId, ++recoveryGeneration)
         recoveryInProgress = token
         RecoveryDecision.Recover(token, snapshot, failure)
