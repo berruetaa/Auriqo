@@ -87,8 +87,6 @@ object YTPlayerUtils {
     
     private val MAIN_CLIENT: YouTubeClient = VISIONOS
 
-    
-    private val METADATA_CLIENT: YouTubeClient = WEB_REMIX
 
     // Keep fallback policy capability-driven. Auriqo can generate Web BotGuard/GVS tokens,
     // but it does not implement Android DroidGuard or iOSGuard attestation.
@@ -198,77 +196,77 @@ object YTPlayerUtils {
         Timber.tag(logTag).d("Session authentication status: ${if (isLoggedIn) "Logged in" else "Not logged in"}")
 
         
-        val signatureTimestamp = getSignatureTimestampOrNull(videoId)
-        Timber.tag(logTag).d("Signature timestamp: ${signatureTimestamp.timestamp}")
+        var signatureTimestampResult: SignatureTimestampResult? = null
+        suspend fun signatureTimestampFor(client: YouTubeClient): Int? {
+            if (!client.useSignatureTimestamp) {
+                PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                    "PLAYER_JS_SKIPPED",
+                    "client=${client.clientName} reason=signature_timestamp_not_required",
+                )
+                return null
+            }
+            val cached = signatureTimestampResult
+            if (cached != null) return cached.timestamp
 
-        
+            PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                "PLAYER_JS_REQUIRED",
+                "client=${client.clientName}",
+            )
+            return getSignatureTimestampOrNull(videoId).also { resolved ->
+                signatureTimestampResult = resolved
+                Timber.tag(logTag).d("Signature timestamp resolved lazily: ${resolved.timestamp}")
+            }.timestamp
+        }
+
         var poToken: PoTokenResult? = null
         val sessionId = if (isLoggedIn) YouTube.dataSyncId else YouTube.visitorData
-        if (MAIN_CLIENT.useWebPoTokens && sessionId != null) {
-            Timber.tag(logTag).d("Generating PoToken for MAIN_CLIENT with sessionId")
-            try {
-                poToken = poTokenGenerator.getWebClientPoToken(videoId, sessionId)
-                if (poToken != null) {
-                    Timber.tag(logTag).d("PoToken generated successfully")
+
+        var mainPlayerResponse: PlayerResponse? = null
+        if (!skipPrimaryClient) {
+            Timber.tag(logTag).d("Attempting to get player response using MAIN_CLIENT: ${MAIN_CLIENT.clientName}")
+            PlaybackLogManager.log(PlaybackLogLevel.DEBUG, "Trying ${MAIN_CLIENT.clientName} (Main)")
+            val mainPlayerPoToken = if (MAIN_CLIENT.useWebPoTokens && sessionId != null) {
+                try {
+                    poTokenGenerator.getWebClientPoToken(videoId, sessionId).also { poToken = it }
+                        ?.playerRequestPoToken
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                        "POTOKEN_FAILED",
+                        "client=${MAIN_CLIENT.clientName} type=${e::class.simpleName}",
+                    )
+                    null
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.tag(logTag).e("PoToken generation failed type=${e::class.java.simpleName}")
+            } else {
+                null
             }
+            mainPlayerResponse = YouTube.player(
+                videoId,
+                playlistId,
+                MAIN_CLIENT,
+                signatureTimestampFor(MAIN_CLIENT),
+                mainPlayerPoToken,
+            ).getOrThrow()
+        } else {
+            PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                "PRIMARY_PLAYER_REQUEST_SKIPPED",
+                MAIN_CLIENT.clientName,
+            )
         }
 
-        
-        Timber.tag(logTag).d("Attempting to get player response using MAIN_CLIENT: ${MAIN_CLIENT.clientName}")
-        PlaybackLogManager.log(PlaybackLogLevel.DEBUG, "Trying ${MAIN_CLIENT.clientName} (Main)")
-        var mainPlayerResponse = YouTube.player(videoId, playlistId, MAIN_CLIENT, signatureTimestamp.timestamp, poToken?.playerRequestPoToken).getOrThrow()
-
-        
-        
-        
-        var metadataResponse: PlayerResponse? = null
-        if (isLoggedIn) {
-            Timber.tag(logTag).d("Fetching metadata from METADATA_CLIENT (WEB_REMIX) for authenticated tracking")
-            try {
-                
-                var metaPoToken: PoTokenResult? = null
-                val metaSessionId = YouTube.dataSyncId
-                if (METADATA_CLIENT.useWebPoTokens && metaSessionId != null) {
-                    try {
-                        metaPoToken = poTokenGenerator.getWebClientPoToken(videoId, metaSessionId)
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Timber.tag(logTag).e("Metadata PoToken generation failed type=${e::class.java.simpleName}")
-                    }
-                }
-                metadataResponse = YouTube.player(
-                    videoId, playlistId, METADATA_CLIENT,
-                    signatureTimestamp.timestamp, metaPoToken?.playerRequestPoToken
-                ).getOrNull()
-                Timber.tag(logTag).d("Metadata response obtained: ${metadataResponse?.playabilityStatus?.status}")
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.tag(logTag).e("Failed to fetch metadata from METADATA_CLIENT type=${e::class.java.simpleName}")
-            }
-        }
-
-        
         var usedAgeRestrictedClient: YouTubeClient? = null
         val wasOriginallyAgeRestricted: Boolean
 
-        
-        
-        
-        
-        
-        val mainStatus = mainPlayerResponse.playabilityStatus.status
+        val mainStatus = mainPlayerResponse?.playabilityStatus?.status
         val isAgeRestrictedFromResponse = mainStatus in listOf(
             "AGE_CHECK_REQUIRED",
             "AGE_VERIFICATION_REQUIRED",
             "CONTENT_CHECK_REQUIRED"
-        ) || (mainStatus == "LOGIN_REQUIRED" && mainPlayerResponse.playabilityStatus.reason?.contains("age", ignoreCase = true) == true)
+        ) || (
+            mainStatus == "LOGIN_REQUIRED" &&
+                mainPlayerResponse?.playabilityStatus?.reason?.contains("age", ignoreCase = true) == true
+        )
         wasOriginallyAgeRestricted = isAgeRestrictedFromResponse
 
         if (isAgeRestrictedFromResponse && isLoggedIn) {
@@ -322,18 +320,6 @@ object YTPlayerUtils {
         }
 
         
-        if (mainPlayerResponse == null) {
-            throw PlaybackResolutionException(
-                message = "Failed to get player response",
-                hint = PlaybackFailureHint.PLAYER_RESPONSE_FAILED,
-            )
-        }
-
-        
-        
-        val audioConfig = metadataResponse?.playerConfig?.audioConfig ?: mainPlayerResponse.playerConfig?.audioConfig
-        val videoDetails = metadataResponse?.videoDetails ?: mainPlayerResponse.videoDetails
-        val playbackTracking = metadataResponse?.playbackTracking ?: mainPlayerResponse.playbackTracking
         var format: PlayerResponse.StreamingData.Format? = null
         var streamUrl: String? = null
         var streamExpiresInSeconds: Int? = null
@@ -343,8 +329,8 @@ object YTPlayerUtils {
         var retryMainPlayerResponse: PlayerResponse? = if (usedAgeRestrictedClient != null) mainPlayerResponse else null
 
         
-        val currentStatus = mainPlayerResponse.playabilityStatus.status
-        var isAgeRestricted = currentStatus in listOf(
+        val currentStatus = mainPlayerResponse?.playabilityStatus?.status
+        val needsFallbackFromPlayability = currentStatus in listOf(
             "AGE_CHECK_REQUIRED",
             "AGE_VERIFICATION_REQUIRED",
             "CONTENT_CHECK_REQUIRED",
@@ -352,19 +338,20 @@ object YTPlayerUtils {
             "LOGIN_REQUIRED"
         )
 
-        if (isAgeRestricted) {
+        if (needsFallbackFromPlayability) {
             Timber.tag(logTag).d("Content needs fallback (status: $currentStatus)")
             android.util.Log.i("YTPlayerUtils", "Unplayable content detected: videoId=$videoId, status=$currentStatus")
         }
         
-        val isPrivateTrack = mainPlayerResponse.videoDetails?.musicVideoType == "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
+        val isPrivateTrack =
+            mainPlayerResponse?.videoDetails?.musicVideoType == "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
 
         
         
         
         val startIndex = when {
             isPrivateTrack -> 0
-            isAgeRestricted -> 0
+            needsFallbackFromPlayability -> 0
             skipPrimaryClient -> 0
             else -> -1
         }
@@ -383,7 +370,9 @@ object YTPlayerUtils {
             if (clientIndex == -1) {
                 
                 client = MAIN_CLIENT
-                streamPlayerResponse = retryMainPlayerResponse ?: mainPlayerResponse
+                streamPlayerResponse = retryMainPlayerResponse ?: requireNotNull(mainPlayerResponse) {
+                    "MAIN_CLIENT response missing on primary stream path"
+                }
                 Timber.tag(logTag).d("Trying stream from MAIN_CLIENT: ${client.clientName}")
             } else {
                 
@@ -430,7 +419,8 @@ object YTPlayerUtils {
                 
                 val clientPoToken = if (client.useWebPoTokens) poToken?.playerRequestPoToken else null
                 
-                val clientSigTimestamp = if (wasOriginallyAgeRestricted) null else signatureTimestamp.timestamp
+                val clientSigTimestamp =
+                    if (wasOriginallyAgeRestricted) null else signatureTimestampFor(client)
                 streamPlayerResponse =
                     YouTube.player(videoId, playlistId, client, clientSigTimestamp, clientPoToken)
                         .onFailure {
@@ -671,6 +661,12 @@ object YTPlayerUtils {
             message = "No stream candidate passed the acceptance policy",
             hint = PlaybackFailureHint.STREAM_URL_EXPIRED,
         )
+        val acceptedPlayerResponse = streamPlayerResponse
+        val audioConfig =
+            acceptedPlayerResponse.playerConfig?.audioConfig ?: mainPlayerResponse?.playerConfig?.audioConfig
+        val videoDetails = acceptedPlayerResponse.videoDetails ?: mainPlayerResponse?.videoDetails
+        val playbackTracking =
+            acceptedPlayerResponse.playbackTracking ?: mainPlayerResponse?.playbackTracking
         val finalSource = selectedStreamSource?.name ?: "UNKNOWN"
         val hasStreamingPoToken = Uri.parse(streamUrl).getQueryParameter("pot") != null
         if (finalStreamClient.useWebPoTokens && !hasStreamingPoToken) {
@@ -714,11 +710,30 @@ object YTPlayerUtils {
     suspend fun playerResponseForMetadata(
         videoId: String,
         playlistId: String? = null,
-    ): Result<PlayerResponse> {
-        Timber.tag(logTag).d("Fetching metadata-only player response for videoId: $videoId using MAIN_CLIENT: ${MAIN_CLIENT.clientName}")
-        return YouTube.player(videoId, playlistId, client = WEB_REMIX) 
-            .onSuccess { Timber.tag(logTag).d("Successfully fetched metadata") }
-            .onFailure { Timber.tag(logTag).e("Failed to fetch metadata type=${it::class.java.simpleName}") }
+    ): Result<PlayerResponse> = runCatching {
+        val client = WEB_REMIX
+        val sessionId = if (YouTube.cookie != null) YouTube.dataSyncId else YouTube.visitorData
+        val poToken = if (client.useWebPoTokens && sessionId != null) {
+            poTokenGenerator.getWebClientPoToken(videoId, sessionId)
+        } else {
+            null
+        }
+        val signatureTimestamp =
+            if (client.useSignatureTimestamp) getSignatureTimestampOrNull(videoId).timestamp else null
+
+        Timber.tag(logTag).d("Fetching deferred metadata response using ${client.clientName}")
+        YouTube.player(
+            videoId = videoId,
+            playlistId = playlistId,
+            client = client,
+            signatureTimestamp = signatureTimestamp,
+            poToken = poToken?.playerRequestPoToken,
+        ).getOrThrow()
+    }.onSuccess {
+        Timber.tag(logTag).d("Successfully fetched deferred metadata")
+    }.onFailure {
+        if (it is kotlinx.coroutines.CancellationException) throw it
+        Timber.tag(logTag).e("Failed to fetch deferred metadata type=${it::class.java.simpleName}")
     }
 
     private fun findFormat(
