@@ -403,19 +403,22 @@ class MusicService :
     var queueTitle: String? = null
 
     val currentMediaMetadata = MutableStateFlow<com.auriqo.music.models.MediaMetadata?>(null)
-    private val currentSong =
+    private val currentSong by lazy {
         currentMediaMetadata
             .flatMapLatest { mediaMetadata ->
                 database.song(mediaMetadata?.id)
             }.stateIn(scope, SharingStarted.Lazily, null)
-    val currentSongLiked =
+    }
+    val currentSongLiked by lazy {
         currentSong
             .map { it?.song?.liked == true }
             .stateIn(scope, SharingStarted.Eagerly, false)
-    private val currentFormat =
+    }
+    private val currentFormat by lazy {
         currentMediaMetadata.flatMapLatest { mediaMetadata ->
             database.format(mediaMetadata?.id)
         }
+    }
 
     lateinit var playerVolume: MutableStateFlow<Float>
     val isMuted = MutableStateFlow(false)
