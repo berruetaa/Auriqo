@@ -26,6 +26,7 @@ object Media3PlaybackDiagnostics {
         quality: String? = null,
         queueIndex: Int? = null,
         networkType: String? = null,
+        elapsedMs: Long = 0L,
         terminalOverride: Boolean? = null,
     ): PlaybackFailureInput {
         val resolution = findCause<PlaybackResolutionException>(error)
@@ -48,6 +49,7 @@ object Media3PlaybackDiagnostics {
             quality = quality,
             queueIndex = queueIndex,
             networkType = networkType,
+            elapsedMs = elapsedMs,
             terminalOverride = terminalOverride,
         )
     }

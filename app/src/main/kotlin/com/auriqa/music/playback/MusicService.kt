@@ -2308,6 +2308,9 @@ class MusicService :
         }
 
         if (playbackState == Player.STATE_READY) {
+            if (!player.playWhenReady) {
+                trace?.recoveryEndIfActive(success = true, result = "ready_paused")
+            }
             consecutivePlaybackErr = 0
             retryCount = 0
             waitingForNetworkConnection.value = false
@@ -2393,7 +2396,9 @@ class MusicService :
                     // Media3 has no public audio-sink "first sample written" callback. READY +
                     // isPlaying is the closest stable signal: renderers are enabled and the
                     // playback position is advancing, unlike READY alone.
-                    PlaybackDiagnostics.currentFor(player.currentMediaItem?.mediaId)?.firstAudio()
+                    val playbackTrace = PlaybackDiagnostics.currentFor(player.currentMediaItem?.mediaId)
+                    playbackTrace?.firstAudio()
+                    playbackTrace?.recoveryEndIfActive(success = true, result = "first_audio")
                 }
                 startWidgetUpdates()
                 acquireWifiLock()
@@ -2638,6 +2643,7 @@ class MusicService :
                 quality = if (::audioQuality.isInitialized) audioQuality.name else null,
                 queueIndex = player.currentMediaItemIndex.takeIf { it != C.INDEX_UNSET },
                 networkType = playbackNetworkType(),
+                elapsedMs = trace.elapsedNowMs(),
                 terminalOverride = terminalOverride,
             ),
         )
@@ -2889,8 +2895,7 @@ class MusicService :
                 "Reprepared ${snapshot.mediaId} at ${snapshot.positionMs}ms " +
                     "(playWhenReady=${snapshot.playWhenReady})",
             )
-            trace?.recoveryEnd(1, success = true, result = "reprepare_requested")
-            recoveryEventRecorded = true
+            trace?.breadcrumb("RECOVERY_REPREPARE_REQUESTED", "playWhenReady=${snapshot.playWhenReady}")
         } catch (e: kotlinx.coroutines.CancellationException) {
             if (!recoveryEventRecorded) {
                 trace?.recoveryEnd(1, success = false, result = "cancelled")
@@ -2996,16 +3001,21 @@ class MusicService :
                 forceStreamResolution.remove(mediaId)
                 scope.launch { invalidateVolatileStreamCache(mediaId) }
                 Timber.tag(TAG).w("Fresh stream also failed for $mediaId; not retrying again")
+                val recoveryDurationMs = trace?.recoveryEndIfActive(
+                    success = false,
+                    result = "stream_recovery_failed",
+                )
                 val exhaustedFailure = (diagnosticFailure ?: lastPlaybackFailure)?.copy(
                     terminal = true,
                     attempt = 2,
-                    maxAttempts = 1,
+                    maxAttempts = 2,
                     technicalMessage = "${diagnosticFailure?.technicalMessage ?: "stream failure"} recovery=exhausted",
                     recoveryActions = listOf(
                         com.auriqo.music.playback.diagnostics.PlaybackRecoveryAction(
                             action = "stream_re-resolve",
                             result = "exhausted",
                             attempt = 1,
+                            elapsedMs = recoveryDurationMs,
                         ),
                     ),
                 )
@@ -3064,11 +3074,12 @@ class MusicService :
             StreamRecoveryCoordinator.RecoveryDecision.RecoveryInProgress -> true
 
             StreamRecoveryCoordinator.RecoveryDecision.Exhausted -> {
+                trace?.recoveryEndIfActive(success = false, result = "local_recovery_failed")
                 handleFinalFailure(
                     diagnosticFailure?.copy(
                         terminal = true,
                         attempt = 2,
-                        maxAttempts = 1,
+                        maxAttempts = 2,
                     ),
                 )
                 true
@@ -3195,7 +3206,10 @@ class MusicService :
         val terminalFailure = failure?.copy(terminal = true) ?: return
         lastPlaybackFailure = terminalFailure
         _terminalPlaybackFailure.value = terminalFailure
-        PlaybackDiagnostics.currentFor(terminalFailure.mediaId)?.terminalFailure(terminalFailure)
+        PlaybackDiagnostics.currentFor(terminalFailure.mediaId)?.let { trace ->
+            trace.recoveryEndIfActive(success = false, result = "terminal_failure")
+            trace.terminalFailure(terminalFailure)
+        }
         if (dataStore.snapshot(AutoSkipNextOnErrorKey, false)) {
             Timber.tag(TAG).d("All recovery attempts exhausted, auto-skipping to next track")
             skipOnError()

@@ -11,6 +11,7 @@ import java.util.IdentityHashMap
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.ceil
 
@@ -539,15 +540,18 @@ class PlaybackTraceRecorder internal constructor(
     private val clockNs: () -> Long,
 ) {
     private val startedAtNs = clockNs()
-    private val timingStarts = mutableMapOf<String, Long>()
-    private var firstAudioRecorded = false
-    private var terminalRecorded = false
+    private val timingStarts = ConcurrentHashMap<String, Long>()
+    private val firstAudioRecorded = AtomicBoolean(false)
+    private val terminalRecorded = AtomicBoolean(false)
+    private val activeRecoveryAttempt = AtomicReference<Int?>(null)
     private var currentMediaId: String? = mediaId
 
     val mediaId: String?
         get() = currentMediaId
 
     private fun elapsedMs(): Long = ((clockNs() - startedAtNs) / 1_000_000L).coerceAtLeast(0L)
+
+    fun elapsedNowMs(): Long = elapsedMs()
 
     fun attachMediaId(mediaId: String?) {
         if (!mediaId.isNullOrBlank()) currentMediaId = mediaId
@@ -647,22 +651,39 @@ class PlaybackTraceRecorder internal constructor(
     fun ready() = append(PlaybackDiagnosticEvent.PlayerReady(traceId, elapsedMs(), currentMediaId))
 
     fun firstAudio() {
-        if (firstAudioRecorded) return
-        firstAudioRecorded = true
-        metrics.record(PlaybackMetric.TAP_TO_FIRST_AUDIO, elapsedMs())
-        append(PlaybackDiagnosticEvent.FirstAudio(traceId, elapsedMs(), currentMediaId))
+        if (!firstAudioRecorded.compareAndSet(false, true)) return
+        val elapsed = elapsedMs()
+        metrics.record(PlaybackMetric.TAP_TO_FIRST_AUDIO, elapsed)
+        append(PlaybackDiagnosticEvent.FirstAudio(traceId, elapsed, currentMediaId))
     }
 
     fun recoveryStart(attempt: Int, maxAttempts: Int, reason: String) {
         timingStarts["recovery"] = clockNs()
+        activeRecoveryAttempt.set(attempt)
         append(PlaybackDiagnosticEvent.RecoveryStart(traceId, elapsedMs(), currentMediaId, attempt, maxAttempts, reason))
     }
 
     fun recoveryEnd(attempt: Int, success: Boolean, result: String) {
-        val duration = timingStarts.remove("recovery")?.let { (clockNs() - it) / 1_000_000L }
+        val startedAt = timingStarts.remove("recovery")
+        activeRecoveryAttempt.set(null)
+        val duration = startedAt?.let { (clockNs() - it) / 1_000_000L }
         if (duration != null) metrics.record(PlaybackMetric.RECOVERY_LATENCY, duration)
         metrics.recordRecovery(success)
         append(PlaybackDiagnosticEvent.RecoveryEnd(traceId, elapsedMs(), currentMediaId, attempt, success, result, duration))
+    }
+
+    /**
+     * Completes a recovery only when one is actually active. This is used by asynchronous player
+     * success/failure boundaries so a mere call to Player.prepare() is never counted as recovery.
+     */
+    fun recoveryEndIfActive(success: Boolean, result: String): Long? {
+        val startedAt = timingStarts.remove("recovery") ?: return null
+        val attempt = activeRecoveryAttempt.getAndSet(null) ?: 1
+        val duration = ((clockNs() - startedAt) / 1_000_000L).coerceAtLeast(0L)
+        metrics.record(PlaybackMetric.RECOVERY_LATENCY, duration)
+        metrics.recordRecovery(success)
+        append(PlaybackDiagnosticEvent.RecoveryEnd(traceId, elapsedMs(), currentMediaId, attempt, success, result, duration))
+        return duration
     }
 
     fun formatFallback(fromItag: Int?, toItag: Int?, reason: String) = append(
@@ -678,11 +699,11 @@ class PlaybackTraceRecorder internal constructor(
     )
 
     fun terminalFailure(failure: PlaybackFailure) {
-        if (terminalRecorded) return
-        terminalRecorded = true
-        metrics.record(PlaybackMetric.TERMINAL_FAILURE_LATENCY, elapsedMs())
+        if (!terminalRecorded.compareAndSet(false, true)) return
+        val elapsed = elapsedMs()
+        metrics.record(PlaybackMetric.TERMINAL_FAILURE_LATENCY, elapsed)
         metrics.recordTerminalFailure()
-        append(PlaybackDiagnosticEvent.TerminalFailure(traceId, elapsedMs(), currentMediaId, failure))
+        append(PlaybackDiagnosticEvent.TerminalFailure(traceId, elapsed, currentMediaId, failure))
     }
 
     private companion object {

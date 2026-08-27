@@ -50,6 +50,7 @@ class PlaybackDiagnosticsTest {
         trace.firstAudio()
         trace.recoveryStart(attempt = 1, maxAttempts = 1, reason = "HTTP_403")
         nowNs = 650_000_000
+        assertEquals(650L, trace.elapsedNowMs())
         trace.recoveryEnd(attempt = 1, success = true, result = "recovered")
 
         assertTrue(buffer.snapshot().isNotEmpty())
@@ -61,6 +62,31 @@ class PlaybackDiagnosticsTest {
             150L,
             buffer.snapshot().filterIsInstance<PlaybackDiagnosticEvent.RecoveryEnd>().single().durationMs,
         )
+    }
+
+    @Test
+    fun asynchronousRecoveryOnlyEndsWhenAnActiveTimerExists() {
+        var nowNs = 0L
+        val buffer = PlaybackDiagnosticBuffer(16)
+        val metrics = PlaybackMetrics()
+        val trace = PlaybackTraceRecorder(
+            traceId = "PB-RECOV001",
+            mediaId = "video-id",
+            buffer = buffer,
+            metrics = metrics,
+            clockNs = { nowNs },
+        )
+
+        assertEquals(null, trace.recoveryEndIfActive(success = true, result = "no_recovery"))
+        assertEquals(0L, metrics.snapshot().recoveryAttempts)
+
+        trace.recoveryStart(attempt = 1, maxAttempts = 1, reason = "HTTP_403")
+        nowNs = 275_000_000
+        assertEquals(275L, trace.recoveryEndIfActive(success = true, result = "first_audio"))
+        assertEquals(1L, metrics.snapshot().recoveryAttempts)
+        assertEquals(1L, metrics.snapshot().recoverySuccesses)
+        assertEquals(null, trace.recoveryEndIfActive(success = true, result = "duplicate"))
+        assertEquals(1L, metrics.snapshot().recoveryAttempts)
     }
 
     @Test
@@ -271,6 +297,8 @@ class PlaybackDiagnosticsTest {
         assertTrue(report.contains("quality=AAC"))
         assertTrue(report.contains("queueIndex=7"))
         assertTrue(report.contains("proxyEnabled=false"))
+        assertTrue(report.contains("totalMs=250"))
+        assertTrue(report.contains("httpFailureCount=1"))
         assertFalse(report.contains("secret"))
         assertFalse(report.contains("Cookie"))
     }
