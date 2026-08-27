@@ -741,6 +741,26 @@ object PlaybackDiagnostics {
 
     fun current(): PlaybackTraceRecorder? = current.get()
 
+    fun bindPendingUserRequest(
+        trace: PlaybackTraceRecorder,
+        mediaId: String?,
+    ): Boolean {
+        if (mediaId.isNullOrBlank()) return false
+        if (pendingUserRequest.get() !== trace) return false
+        if (trace.mediaId != null && trace.mediaId != mediaId) return false
+
+        trace.attachMediaId(mediaId)
+        rememberMediaTrace(mediaId, trace)
+        trace.breadcrumb("USER_REQUEST_TARGET_RESOLVED", mediaId)
+        return true
+    }
+
+    fun cancelPendingUserRequest(trace: PlaybackTraceRecorder, reason: String) {
+        if (pendingUserRequest.compareAndSet(trace, null)) {
+            trace.breadcrumb("USER_REQUEST_CANCELLED", reason)
+        }
+    }
+
     fun currentFor(mediaId: String?): PlaybackTraceRecorder? {
         val recorder = current.get()
         if (recorder != null && (mediaId == null || recorder.mediaId == mediaId)) {
@@ -776,7 +796,8 @@ object PlaybackDiagnostics {
         val pending = pendingUserRequest.get()
         if (
             pending != null &&
-            (pending.mediaId == null || pending.mediaId == mediaId) &&
+            pending.mediaId != null &&
+            pending.mediaId == mediaId &&
             pendingUserRequest.compareAndSet(pending, null)
         ) {
             pending.attachMediaId(mediaId)
@@ -787,7 +808,8 @@ object PlaybackDiagnostics {
         }
 
         if (force) {
-            pendingUserRequest.set(null)
+            // An unrelated transition from the previous queue must not consume an unresolved
+            // user request. A newer startUserRequest() replaces the pending recorder explicitly.
             return start(mediaId, "transition")
         }
 

@@ -1646,7 +1646,10 @@ class MusicService :
             if (initialStatus.title != null) {
                 queueTitle = initialStatus.title
             }
-            if (initialStatus.items.isEmpty()) return@launch
+            if (initialStatus.items.isEmpty()) {
+                PlaybackDiagnostics.cancelPendingUserRequest(requestTrace, "queue_empty")
+                return@launch
+            }
             
             originalQueueSize = initialStatus.items.size
             if (queue.preloadItem != null) {
@@ -1664,6 +1667,8 @@ class MusicService :
                 resyncCastQueueIfCasting()
             } else {
                 val safeIndex = initialStatus.mediaItemIndex.coerceIn(0, (initialStatus.items.size - 1).coerceAtLeast(0))
+                val targetMediaId = initialStatus.items.getOrNull(safeIndex)?.mediaId
+                PlaybackDiagnostics.bindPendingUserRequest(requestTrace, targetMediaId)
                 player.setMediaItems(
                     initialStatus.items,
                     safeIndex,

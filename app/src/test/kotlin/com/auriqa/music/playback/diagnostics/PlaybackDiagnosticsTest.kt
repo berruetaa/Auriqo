@@ -238,15 +238,38 @@ class PlaybackDiagnosticsTest {
     }
 
     @Test
-    fun unboundUserTapAttachesToTheFirstResolvedMediaId() {
+    fun unboundUserTapWaitsForExplicitQueueTargetBinding() {
         PlaybackDiagnostics.clear()
         try {
             val request = PlaybackDiagnostics.startUserRequest(mediaId = null, source = "user_tap")
+
+            val unrelated = PlaybackDiagnostics.transitionTo("old-queue-next", force = true)
+            assertFalse(request.traceId == unrelated.traceId)
+
+            assertTrue(PlaybackDiagnostics.bindPendingUserRequest(request, "resolved-video"))
             val transition = PlaybackDiagnostics.transitionTo("resolved-video", force = true)
 
             assertEquals(request.traceId, transition.traceId)
             assertEquals("resolved-video", transition.mediaId)
             assertEquals(request.traceId, PlaybackDiagnostics.currentFor("resolved-video")?.traceId)
+        } finally {
+            PlaybackDiagnostics.clear()
+        }
+    }
+
+    @Test
+    fun lateOldQueueResultCannotBindANewerPendingUserRequest() {
+        PlaybackDiagnostics.clear()
+        try {
+            val oldRequest = PlaybackDiagnostics.startUserRequest(mediaId = null, source = "user_tap")
+            val newRequest = PlaybackDiagnostics.startUserRequest(mediaId = null, source = "user_tap")
+
+            assertFalse(PlaybackDiagnostics.bindPendingUserRequest(oldRequest, "old-target"))
+            assertTrue(PlaybackDiagnostics.bindPendingUserRequest(newRequest, "new-target"))
+            assertEquals(
+                newRequest.traceId,
+                PlaybackDiagnostics.transitionTo("new-target", force = true).traceId,
+            )
         } finally {
             PlaybackDiagnostics.clear()
         }
