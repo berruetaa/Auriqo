@@ -422,6 +422,37 @@ class StreamRecoveryCoordinatorTest {
     }
 
     @Test
+    fun currentContextAcceptsANewResolutionAfterAnOldOneWasSuperseded() {
+        coordinator.activateContext(sessionGeneration = 1L, networkGeneration = 1L)
+        val staleKey = StreamRecoveryCoordinator.StreamKey("video-id", "OPUS", 1L, 1L)
+        val staleToken = coordinator.resolutionToken("video-id")
+
+        coordinator.activateContext(sessionGeneration = 2L, networkGeneration = 1L)
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Superseded,
+            coordinator.cacheStream(
+                staleKey,
+                "https://cdn.example/stale",
+                nowMs + 60_000L,
+                staleToken,
+            ),
+        )
+
+        val currentKey = StreamRecoveryCoordinator.StreamKey("video-id", "OPUS", 2L, 1L)
+        val currentToken = coordinator.resolutionToken("video-id")
+        assertEquals(
+            StreamRecoveryCoordinator.CacheWriteResult.Stored,
+            coordinator.cacheStream(
+                currentKey,
+                "https://cdn.example/current",
+                nowMs + 60_000L,
+                currentToken,
+            ),
+        )
+        assertEquals("https://cdn.example/current", coordinator.cachedStream(currentKey)?.url)
+    }
+
+    @Test
     fun staleContextCannotRollCoordinatorBackwards() {
         coordinator.activateContext(sessionGeneration = 5L, networkGeneration = 7L)
         assertFalse(coordinator.activateContext(sessionGeneration = 4L, networkGeneration = 7L))

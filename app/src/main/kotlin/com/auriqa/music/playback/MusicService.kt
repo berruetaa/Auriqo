@@ -396,6 +396,7 @@ class MusicService :
     val waitingForNetworkConnection = MutableStateFlow(false)
     private val isNetworkConnected = MutableStateFlow(false)
     private var lastNetworkConnected: Boolean? = null
+    @Volatile
     private var streamNetworkGeneration = 0L
 
     private lateinit var audioQuality: com.auriqo.music.constants.AudioQuality
@@ -2593,20 +2594,41 @@ class MusicService :
         return null
     }
 
+    private data class ActiveStreamContext(
+        val sessionGeneration: Long,
+        val networkGeneration: Long,
+    )
+
+    private fun activateStreamContext(): ActiveStreamContext {
+        while (true) {
+            val context = ActiveStreamContext(
+                sessionGeneration = YouTube.streamContextGeneration,
+                networkGeneration = streamNetworkGeneration,
+            )
+            if (
+                streamRecovery.activateContext(
+                    sessionGeneration = context.sessionGeneration,
+                    networkGeneration = context.networkGeneration,
+                )
+            ) {
+                return context
+            }
+            // A newer session/network callback won the race. Re-read the monotonic generations
+            // rather than issuing a request with a key that can no longer be cached.
+            Thread.yield()
+        }
+    }
+
     private fun streamKey(
         mediaId: String,
         quality: com.auriqo.music.constants.AudioQuality,
     ): StreamRecoveryCoordinator.StreamKey {
-        val sessionGeneration = YouTube.streamContextGeneration
-        streamRecovery.activateContext(
-            sessionGeneration = sessionGeneration,
-            networkGeneration = streamNetworkGeneration,
-        )
+        val context = activateStreamContext()
         return StreamRecoveryCoordinator.StreamKey(
             mediaId = mediaId,
             quality = quality.name,
-            sessionGeneration = sessionGeneration,
-            networkGeneration = streamNetworkGeneration,
+            sessionGeneration = context.sessionGeneration,
+            networkGeneration = context.networkGeneration,
         )
     }
 
@@ -3617,11 +3639,12 @@ class MusicService :
             val downloadCoverage = downloadCacheCoverage(mediaId)
             val isFullyDownloaded = downloadCoverage.state == DownloadCacheState.Full
 
+            activateStreamContext()
             val activeQualityInCache = streamRecovery.activeQuality(mediaId)?.let {
                 runCatching { com.auriqo.music.constants.AudioQuality.valueOf(it) }.getOrNull()
             }
             val lockedQuality = activeQualityInCache ?: audioQuality
-            val streamKey = streamKey(mediaId, lockedQuality)
+            var streamKey = streamKey(mediaId, lockedQuality)
             val trace = PlaybackDiagnostics.currentFor(mediaId)
             trace?.resolutionRequested(mediaId, lockedQuality.name)
             if (downloadCoverage.state == DownloadCacheState.Partial) {
@@ -3732,8 +3755,9 @@ class MusicService :
                     StreamRecoveryCoordinator.CacheWriteResult.Superseded -> {
                         Timber.tag(TAG).d(
                             "Discarded superseded stream resolution for $mediaId; " +
-                                "resolving once for the current generation (attempt ${attempt + 1})",
+                                "re-keying against the current stream context (attempt ${attempt + 1})",
                         )
+                        streamKey = streamKey(mediaId, lockedQuality)
                         resolutionToken = streamRecovery.resolutionToken(mediaId)
                     }
 
