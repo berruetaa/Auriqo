@@ -7,15 +7,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -119,23 +124,33 @@ fun PlaybackError(
 
         if (showDetails) {
             Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = buildString {
-                    append("stage=${failure.stage}\n")
-                    append("category=${failure.category}\n")
-                    append("Media3=${failure.media3CodeName ?: "unknown"} (${failure.media3Code ?: "unknown"})\n")
-                    append("HTTP=${failure.httpStatus ?: "unknown"}\n")
-                    append("HTTP host=${failure.http?.host ?: "unknown"}\n")
-                    append("HTTP message=${failure.http?.responseMessage ?: "unknown"}\n")
-                    append("playability=${PlaybackRedactor.sanitizeScalar(failure.playabilityStatus)}\n")
-                    append("attempt=${failure.attempt}/${failure.maxAttempts}\n")
-                    append(failure.technicalMessage)
-                },
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Start,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 190.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            ) {
+                Text(
+                    text = buildString {
+                        append("stage=${failure.stage}\n")
+                        append("category=${failure.category}\n")
+                        append("Media3=${failure.media3CodeName ?: "unknown"} (${failure.media3Code ?: "unknown"})\n")
+                        append("HTTP=${failure.httpStatus ?: "unknown"}\n")
+                        append("HTTP host=${failure.http?.host ?: "unknown"}\n")
+                        append("HTTP message=${failure.http?.responseMessage ?: "unknown"}\n")
+                        append("playability=${PlaybackRedactor.sanitizeScalar(failure.playabilityStatus)}\n")
+                        append("attempt=${failure.attempt}/${failure.maxAttempts}\n")
+                        append(failure.technicalMessage)
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .verticalScroll(rememberScrollState()),
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))

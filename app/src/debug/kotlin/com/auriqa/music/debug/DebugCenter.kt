@@ -374,18 +374,23 @@ private fun TimelineCard(trace: DebugTraceSnapshot?) {
         if (trace == null) {
             Text("N/A — no trace in the bounded buffer")
         } else {
+            val visibleEvents = trace.events.takeLast(MAX_TIMELINE_EVENTS)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text("${trace.events.size} events", fontWeight = FontWeight.Bold)
                 Text(
-                    "Tap a row to expand",
+                    if (visibleEvents.size < trace.events.size) {
+                        "Last ${visibleEvents.size} · tap to expand"
+                    } else {
+                        "Tap a row to expand"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            trace.events.forEach { EventRow(it) }
+            visibleEvents.forEach { EventRow(it) }
         }
     }
 }
@@ -682,6 +687,8 @@ private fun KeyValue(key: String, value: Any?) {
 private fun HistogramRows(label: String, histogram: DebugHistogram) {
     KeyValue(label, histogramText(histogram))
 }
+
+private const val MAX_TIMELINE_EVENTS = 120
 
 private fun histogramText(histogram: DebugHistogram): String =
     "n=${histogram.count} p50=${histogram.p50Ms ?: "N/A"} p90=${histogram.p90Ms ?: "N/A"} " +
