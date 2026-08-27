@@ -104,9 +104,12 @@ fun DebugCenter(navController: NavController, initialTraceId: String? = null) {
         if (!initialTraceId.isNullOrBlank()) selectedTraceId = initialTraceId
     }
 
+    val activeTrace = state.activeTrace
     val selectedTrace = state.traces.firstOrNull { it.traceId == selectedTraceId }
-        ?: state.activeTrace
-    val runtime = playerConnection?.let { runtimeSnapshot(context, it, selectedTrace) }
+        ?: activeTrace
+    val viewingHistoricalTrace =
+        selectedTrace != null && activeTrace?.traceId != selectedTrace.traceId
+    val runtime = playerConnection?.let { runtimeSnapshot(context, it, activeTrace) }
 
     Scaffold(
         topBar = {
@@ -165,25 +168,36 @@ fun DebugCenter(navController: NavController, initialTraceId: String? = null) {
                     TextButton(onClick = { toastMessage = null }) { Text(message) }
                 }
             }
-            item { SectionTitle("PLAYBACK") }
+            item { SectionTitle("LIVE PLAYER") }
             item { RuntimeCard(runtime) }
-            item { LiveTraceCard(selectedTrace, state.traces) { selectedTraceId = it } }
-            item { SectionTitle("PERFORMANCE") }
+            item { SectionTitle("SELECTED TRACE") }
+            item {
+                LiveTraceCard(
+                    selected = selectedTrace,
+                    traces = state.traces,
+                    historical = viewingHistoricalTrace,
+                    onSelect = { selectedTraceId = it },
+                )
+            }
+            if (viewingHistoricalTrace) {
+                item { HistoricalTraceBanner(selectedTrace?.traceId) }
+            }
+            item { SectionTitle("SESSION PERFORMANCE") }
             item { PerformanceCard(state.metrics) }
             item { HudCard(context, hudEnabled) { DebugRuntimeAccess.setHudEnabled(context, it) } }
             item { SectionTitle("TRACE TIMELINE") }
             item { TimelineCard(selectedTrace) }
-            item { SectionTitle("NETWORK") }
+            item { SectionTitle("TRACE NETWORK") }
             item { NetworkCard(networkRecords, selectedTrace?.traceId) }
             item { SectionTitle("INNERTUBE") }
-            item { InnerTubeCard(selectedTrace) }
-            item { SectionTitle("STREAM / CACHE") }
+            item { InnerTubeCard(selectedTrace, viewingHistoricalTrace) }
+            item { SectionTitle("LIVE STREAM / CACHE") }
             item { CacheCard(runtime, playerConnection) }
-            item { SectionTitle("MEDIA3") }
+            item { SectionTitle("LIVE MEDIA3") }
             item { Media3Card(runtime) }
-            item { SectionTitle("AUDIO") }
+            item { SectionTitle("LIVE AUDIO") }
             item { AudioCard(runtime) }
-            item { SectionTitle("QUEUE") }
+            item { SectionTitle("LIVE QUEUE") }
             item { QueueCard(runtime) }
             item { SectionTitle("ERRORS") }
             item { ErrorHistoryCard(state.traces) { selectedTraceId = it } }
@@ -262,6 +276,24 @@ private fun ChaosActiveBanner(count: Int) {
 }
 
 @Composable
+private fun HistoricalTraceBanner(traceId: String?) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text("Historical trace ${traceId ?: "N/A"}", fontWeight = FontWeight.SemiBold)
+            Text(
+                "Timeline and trace network belong to this selection. Cards labeled LIVE show the player as it is now.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
 private fun RuntimeCard(runtime: DebugRuntimeSnapshot?) {
     InfoCard {
         KeyValue("trace", runtime?.traceId ?: "N/A")
@@ -281,7 +313,12 @@ private fun RuntimeCard(runtime: DebugRuntimeSnapshot?) {
 }
 
 @Composable
-private fun LiveTraceCard(selected: DebugTraceSnapshot?, traces: List<DebugTraceSnapshot>, onSelect: (String) -> Unit) {
+private fun LiveTraceCard(
+    selected: DebugTraceSnapshot?,
+    traces: List<DebugTraceSnapshot>,
+    historical: Boolean,
+    onSelect: (String) -> Unit,
+) {
     InfoCard {
         Text("Last traces", fontWeight = FontWeight.Bold)
         Row(
@@ -299,6 +336,7 @@ private fun LiveTraceCard(selected: DebugTraceSnapshot?, traces: List<DebugTrace
             }
         }
         selected?.let { trace ->
+            KeyValue("view", if (historical) "HISTORICAL" else "ACTIVE")
             KeyValue("classification", trace.classification.name)
             KeyValue("cache", trace.cacheState)
             KeyValue("itag", trace.itag ?: "N/A")
@@ -416,8 +454,15 @@ private fun NetworkCard(records: List<NetworkDebugRequest>, traceId: String?) {
 }
 
 @Composable
-private fun InnerTubeCard(trace: DebugTraceSnapshot?) {
+private fun InnerTubeCard(trace: DebugTraceSnapshot?, historical: Boolean) {
     InfoCard {
+        if (historical) {
+            Text(
+                "Current session/config + evidence captured in the selected trace.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+        }
         KeyValue("locale", "${YouTube.locale.gl}-${YouTube.locale.hl}")
         KeyValue("login browse", YouTube.useLoginForBrowse)
         KeyValue("proxy enabled", YouTube.proxy != null)
@@ -789,7 +834,7 @@ private data class DebugRuntimeSnapshot(
         audio = "{\"focus\":${json(audioFocus)},\"lastEvent\":${json(lastFocusEvent)},\"output\":${json(outputDevice)},\"volume\":${json(volume)},\"muted\":$muted,\"audioSessionId\":$audioSessionId}",
         queue = "{\"size\":$queueSize,\"index\":$queueIndex,\"shuffle\":$shuffle,\"repeat\":${json(repeatMode)},\"items\":${queueItems.joinToString(prefix = "[", postfix = "]") { json(it) }}}",
         innertube = "{\"locale\":${json("${YouTube.locale.gl}-${YouTube.locale.hl}")},\"proxyEnabled\":${YouTube.proxy != null},\"loginBrowse\":${YouTube.useLoginForBrowse},\"visitorDataPresent\":${YouTube.visitorData != null},\"cookiePresent\":${YouTube.cookie != null}}",
-        summary = "trace=$traceId\nclassification=${if (streamCacheState == "HIT") "HOT" else "COLD"}\nmediaId=${PlaybackRedactor.sanitizeScalar(mediaId)}\n",
+        summary = "liveTrace=$traceId\nclassification=${if (streamCacheState == "HIT") "HOT" else "COLD"}\nmediaId=${PlaybackRedactor.sanitizeScalar(mediaId)}\n",
     )
 }
 
