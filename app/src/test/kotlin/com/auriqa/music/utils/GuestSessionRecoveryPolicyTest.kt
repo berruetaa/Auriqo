@@ -41,6 +41,19 @@ class GuestSessionRecoveryPolicyTest {
     }
 
     @Test
+    fun transportCauseInsidePlayerResponseFailureStillBlocksRotation() {
+        assertFalse(
+            YTPlayerUtils.shouldRotateGuestSessionAfterFailure(
+                PlaybackResolutionException(
+                    message = "Bad stream player response",
+                    hint = PlaybackFailureHint.PLAYER_RESPONSE_FAILED,
+                    cause = SocketTimeoutException("timed out"),
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun supersededResolutionDoesNotRotateIdentity() {
         assertFalse(
             YTPlayerUtils.shouldRotateGuestSessionAfterFailure(

@@ -300,6 +300,7 @@ object YTPlayerUtils {
 
         var poToken: PoTokenResult? = null
         val sessionId = if (isLoggedIn) YouTube.dataSyncId else YouTube.visitorData
+        var lastPlayerRequestFailure: Throwable? = null
 
         var mainPlayerResponse: PlayerResponse? = null
         if (!skipPrimaryClient) {
@@ -328,6 +329,7 @@ object YTPlayerUtils {
                 signatureTimestampFor(MAIN_CLIENT),
                 mainPlayerPoToken,
             ).onFailure { error ->
+                lastPlayerRequestFailure = error
                 PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
                     "PRIMARY_PLAYER_REQUEST_FAILED",
                     "client=${MAIN_CLIENT.clientName} type=${error::class.simpleName}",
@@ -399,6 +401,7 @@ object YTPlayerUtils {
                 poToken?.playerRequestPoToken,
             )
                 .onFailure {
+                    lastPlayerRequestFailure = it
                     // Distinguish thrown request/parse failures from genuine playability
                     // rejections (both otherwise surface as a null response downstream).
                     Timber.tag(logTag).e("player() request FAILED for WEB_CREATOR type=${it::class.java.simpleName}")
@@ -515,6 +518,7 @@ object YTPlayerUtils {
                 streamPlayerResponse =
                     YouTube.player(videoId, playlistId, client, clientSigTimestamp, clientPoToken)
                         .onFailure {
+                            lastPlayerRequestFailure = it
                             Timber.tag(logTag).e("player() request FAILED for ${client.clientName} type=${it::class.java.simpleName}")
                         }.getOrNull()
             }
@@ -719,6 +723,7 @@ object YTPlayerUtils {
             throw PlaybackResolutionException(
                 message = "Bad stream player response",
                 hint = PlaybackFailureHint.PLAYER_RESPONSE_FAILED,
+                cause = lastPlayerRequestFailure,
             )
         }
 
