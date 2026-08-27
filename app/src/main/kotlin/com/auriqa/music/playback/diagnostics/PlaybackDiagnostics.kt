@@ -715,6 +715,7 @@ object PlaybackDiagnostics {
     val buffer = PlaybackDiagnosticBuffer()
     val metrics = PlaybackMetrics()
     private val current = AtomicReference<PlaybackTraceRecorder?>(null)
+    private val pendingUserRequest = AtomicReference<PlaybackTraceRecorder?>(null)
     private val resolutionTraces = ConcurrentHashMap<String, PlaybackTraceRecorder>()
     private val mediaTraces = ConcurrentHashMap<String, PlaybackTraceRecorder>()
 
@@ -722,6 +723,7 @@ object PlaybackDiagnostics {
         start(mediaId, source).also {
             it.recordTap(source)
             it.recordQueueRequest()
+            pendingUserRequest.set(it)
         }
 
     fun start(mediaId: String? = null, source: String = "transition"): PlaybackTraceRecorder {
@@ -771,8 +773,26 @@ object PlaybackDiagnostics {
     }
 
     fun transitionTo(mediaId: String?, force: Boolean = false): PlaybackTraceRecorder {
+        val pending = pendingUserRequest.get()
+        if (
+            pending != null &&
+            (pending.mediaId == null || pending.mediaId == mediaId) &&
+            pendingUserRequest.compareAndSet(pending, null)
+        ) {
+            pending.attachMediaId(mediaId)
+            mediaId?.let { rememberMediaTrace(it, pending) }
+            current.set(pending)
+            pending.breadcrumb("USER_REQUEST_BOUND_TO_TRANSITION")
+            return pending
+        }
+
+        if (force) {
+            pendingUserRequest.set(null)
+            return start(mediaId, "transition")
+        }
+
         val existing = currentFor(mediaId)
-        if (!force && existing != null && existing.mediaId == mediaId) return existing
+        if (existing != null && existing.mediaId == mediaId) return existing
         return start(mediaId, "transition")
     }
 
@@ -780,6 +800,7 @@ object PlaybackDiagnostics {
 
     fun clear() {
         current.set(null)
+        pendingUserRequest.set(null)
         resolutionTraces.clear()
         mediaTraces.clear()
         buffer.clear()

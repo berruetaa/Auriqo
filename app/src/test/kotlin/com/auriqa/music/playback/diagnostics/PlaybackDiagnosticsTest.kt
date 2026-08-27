@@ -215,6 +215,59 @@ class PlaybackDiagnosticsTest {
     }
 
     @Test
+    fun forcedFirstTransitionConsumesThePendingUserTapTrace() {
+        PlaybackDiagnostics.clear()
+        try {
+            val request = PlaybackDiagnostics.startUserRequest("video-id", "user_tap")
+            val transition = PlaybackDiagnostics.transitionTo("video-id", force = true)
+
+            assertEquals(request.traceId, transition.traceId)
+            assertEquals(
+                1,
+                PlaybackDiagnostics.events(request.traceId)
+                    .count { it is PlaybackDiagnosticEvent.Tap },
+            )
+            assertTrue(
+                PlaybackDiagnostics.events(request.traceId)
+                    .filterIsInstance<PlaybackDiagnosticEvent.Breadcrumb>()
+                    .any { it.name == "USER_REQUEST_BOUND_TO_TRANSITION" },
+            )
+        } finally {
+            PlaybackDiagnostics.clear()
+        }
+    }
+
+    @Test
+    fun unboundUserTapAttachesToTheFirstResolvedMediaId() {
+        PlaybackDiagnostics.clear()
+        try {
+            val request = PlaybackDiagnostics.startUserRequest(mediaId = null, source = "user_tap")
+            val transition = PlaybackDiagnostics.transitionTo("resolved-video", force = true)
+
+            assertEquals(request.traceId, transition.traceId)
+            assertEquals("resolved-video", transition.mediaId)
+            assertEquals(request.traceId, PlaybackDiagnostics.currentFor("resolved-video")?.traceId)
+        } finally {
+            PlaybackDiagnostics.clear()
+        }
+    }
+
+    @Test
+    fun forcedAutomaticTransitionStartsANewTraceAfterPendingRequestWasConsumed() {
+        PlaybackDiagnostics.clear()
+        try {
+            val request = PlaybackDiagnostics.startUserRequest("A", "user_tap")
+            assertEquals(request.traceId, PlaybackDiagnostics.transitionTo("A", force = true).traceId)
+
+            val automatic = PlaybackDiagnostics.transitionTo("B", force = true)
+            assertFalse(request.traceId == automatic.traceId)
+            assertEquals("B", automatic.mediaId)
+        } finally {
+            PlaybackDiagnostics.clear()
+        }
+    }
+
+    @Test
     fun detachedResolutionDoesNotStealAnUnboundActiveTrace() {
         PlaybackDiagnostics.clear()
         try {
