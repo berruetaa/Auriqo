@@ -105,6 +105,7 @@ object YTPlayerUtils {
         val streamUserAgent: String,
         val streamUrlSource: String,
         val streamingPoTokenAttached: Boolean,
+        val streamContextGeneration: Long,
     )
 
     internal enum class StreamUrlSource {
@@ -194,6 +195,7 @@ object YTPlayerUtils {
         skipPrimaryClient: Boolean = false,
         validatePrimaryCandidate: Boolean = false,
     ): Result<PlaybackData> = runCatching {
+        val requestContextGeneration = YouTube.streamContextGeneration
         Timber.tag(logTag).d("Fetching player response for videoId: $videoId, playlistId: $playlistId")
         PlaybackLogManager.log(PlaybackLogLevel.INFO, "Resolving playback data", "Video: $videoId")
         
@@ -706,10 +708,22 @@ object YTPlayerUtils {
                 "client=${finalStreamClient.clientName}",
             )
         }
+        val currentContextGeneration = YouTube.streamContextGeneration
+        if (currentContextGeneration != requestContextGeneration) {
+            PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                "STREAM_CANDIDATE_SUPERSEDED",
+                "resolved=$requestContextGeneration current=$currentContextGeneration",
+            )
+            throw PlaybackResolutionException(
+                message = "Stream context changed while resolving",
+                hint = PlaybackFailureHint.SUPERSEDED_RESOLUTION,
+            )
+        }
         PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
             "STREAM_CANDIDATE",
             "${finalStreamClient.clientName}/${finalStreamClient.clientVersion} " +
-                "source=$finalSource pot=$hasStreamingPoToken itag=${format.itag}",
+                "source=$finalSource pot=$hasStreamingPoToken itag=${format.itag} " +
+                "context=$requestContextGeneration",
         )
         Timber.tag(logTag).d(
             "Successfully obtained playback data with client=${finalStreamClient.clientName} " +
@@ -727,6 +741,7 @@ object YTPlayerUtils {
             streamUserAgent = finalStreamClient.userAgent,
             streamUrlSource = finalSource,
             streamingPoTokenAttached = hasStreamingPoToken,
+            streamContextGeneration = requestContextGeneration,
         )
     }.onFailure { e ->
         if (e is kotlinx.coroutines.CancellationException) throw e

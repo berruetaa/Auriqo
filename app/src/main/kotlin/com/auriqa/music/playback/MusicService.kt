@@ -3728,6 +3728,18 @@ class MusicService :
                     lockedQuality,
                     skipPrimaryClient = forceStreamResolution.contains(mediaId),
                 )
+                if (
+                    candidate.streamContextGeneration != streamKey.sessionGeneration &&
+                    candidate.streamContextGeneration == YouTube.streamContextGeneration &&
+                    streamKey.networkGeneration == streamNetworkGeneration
+                ) {
+                    trace?.breadcrumb(
+                        "STREAM_CONTEXT_REKEYED",
+                        "from=${streamKey.sessionGeneration} to=${candidate.streamContextGeneration}",
+                    )
+                    streamKey = streamKey(mediaId, lockedQuality)
+                    resolutionToken = streamRecovery.resolutionToken(mediaId)
+                }
                 when (
                     streamRecovery.cacheStream(
                         key = streamKey,
@@ -4951,7 +4963,7 @@ class MusicService :
         if (mediaId.isLocalMediaId()) return
         val trace = PlaybackDiagnostics.startResolution(mediaId, "queue_lookahead_p$priority")
         try {
-            val streamKey = streamKey(mediaId, quality)
+            var streamKey = streamKey(mediaId, quality)
             val downloadCoverage = downloadCacheCoverage(mediaId)
             val cached = streamRecovery.cachedStream(streamKey)
             if (downloadCoverage.state == DownloadCacheState.Full) {
@@ -4980,7 +4992,7 @@ class MusicService :
                 trace.resolutionRequested(mediaId, quality.name)
                 trace.resolutionCacheMiss("preload")
                 Timber.tag(TAG).d("Preloading stream priority=$priority")
-                val resolutionToken = streamRecovery.resolutionToken(mediaId)
+                var resolutionToken = streamRecovery.resolutionToken(mediaId)
                 val dbSong = database.song(mediaId).firstOrNull()
                 val knownArtist = dbSong?.artists
                     ?.joinToString(separator = ", ") { artist -> artist.name }
@@ -4997,6 +5009,18 @@ class MusicService :
                 )
 
                 playbackData.getOrNull()?.let { playback ->
+                    if (
+                        playback.streamContextGeneration != streamKey.sessionGeneration &&
+                        playback.streamContextGeneration == YouTube.streamContextGeneration &&
+                        streamKey.networkGeneration == streamNetworkGeneration
+                    ) {
+                        trace.breadcrumb(
+                            "PRELOAD_CONTEXT_REKEYED",
+                            "from=${streamKey.sessionGeneration} to=${playback.streamContextGeneration}",
+                        )
+                        streamKey = streamKey(mediaId, quality)
+                        resolutionToken = streamRecovery.resolutionToken(mediaId)
+                    }
                     when (
                         streamRecovery.cacheStream(
                             key = streamKey,

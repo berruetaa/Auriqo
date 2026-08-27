@@ -219,11 +219,15 @@ constructor(
 
             val streamUrl = playbackData.streamUrl
 
+            if (playbackData.streamContextGeneration != YouTube.streamContextGeneration) {
+                throw java.io.IOException("Download stream context changed after resolution")
+            }
+
             songUrlCache["${mediaId}_${downloadQuality.value.name}"] = CachedDownloadUrl(
                 url = streamUrl,
                 expiresAtMs = System.currentTimeMillis() + playbackData.streamExpiresInSeconds * 1000L,
                 userAgent = playbackData.streamUserAgent,
-                sessionGeneration = YouTube.streamContextGeneration,
+                sessionGeneration = playbackData.streamContextGeneration,
                 networkHandle = connectivityManager.activeNetwork?.networkHandle,
             )
             dataSpec.buildUpon()
