@@ -212,16 +212,16 @@ data class YouTubeClient(
          */
         val VISIONOS = YouTubeClient(
             clientName = "VISIONOS",
-            clientVersion = "0.1",
+            clientVersion = "1.02",
             clientId = "101",
-            userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+            userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
             osName = "visionOS",
-            osVersion = "1.3.21O771",
+            osVersion = "26.5.23O471",
             deviceMake = "Apple",
-            deviceModel = "RealityDevice14,1",
+            deviceModel = "RealityDevice17,1",
             friendlyName = "visionOS",
             loginSupported = false,
-            useSignatureTimestamp = false
+            useSignatureTimestamp = false,
         )
 
         /**
