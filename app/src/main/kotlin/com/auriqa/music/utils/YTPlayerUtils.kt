@@ -272,10 +272,43 @@ object YTPlayerUtils {
         wasOriginallyAgeRestricted = isAgeRestrictedFromResponse
 
         if (isAgeRestrictedFromResponse && isLoggedIn) {
-            
+            if (WEB_CREATOR.useWebPoTokens && poToken == null) {
+                if (sessionId == null) {
+                    PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                        "POTOKEN_UNAVAILABLE",
+                        "client=WEB_CREATOR reason=session_id_missing",
+                    )
+                } else {
+                    Timber.tag(logTag).d("Generating PoToken for WEB_CREATOR")
+                    try {
+                        poToken = poTokenGenerator.getWebClientPoToken(videoId, sessionId)
+                        if (poToken == null) {
+                            PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                                "POTOKEN_UNAVAILABLE",
+                                "client=WEB_CREATOR reason=generator_unavailable",
+                            )
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                            "POTOKEN_FAILED",
+                            "client=WEB_CREATOR type=${e::class.simpleName}",
+                        )
+                        Timber.tag(logTag).e("WEB_CREATOR PoToken generation failed type=${e::class.java.simpleName}")
+                    }
+                }
+            }
+
             Timber.tag(logTag).d("Age-restricted detected, using WEB_CREATOR")
             Log.i(TAG, "Age-restricted: using WEB_CREATOR for videoId=$videoId")
-            val creatorResponse = YouTube.player(videoId, playlistId, WEB_CREATOR, null, null)
+            val creatorResponse = YouTube.player(
+                videoId,
+                playlistId,
+                WEB_CREATOR,
+                null,
+                poToken?.playerRequestPoToken,
+            )
                 .onFailure {
                     // Distinguish thrown request/parse failures from genuine playability
                     // rejections (both otherwise surface as a null response downstream).
@@ -365,15 +398,31 @@ object YTPlayerUtils {
                 }
 
                 
-                if (client.useWebPoTokens && poToken == null && sessionId != null) {
-                    Timber.tag(logTag).d("Lazily generating PoToken for fallback web client: ${client.clientName}")
-                    try {
-                        poToken = poTokenGenerator.getWebClientPoToken(videoId, sessionId)
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        PlaybackDiagnostics.currentFor(videoId)?.breadcrumb("POTOKEN_FAILED", e::class.simpleName)
-                        Timber.tag(logTag).e("Lazy PoToken generation failed type=${e::class.java.simpleName}")
+                if (client.useWebPoTokens && poToken == null) {
+                    if (sessionId == null) {
+                        PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                            "POTOKEN_UNAVAILABLE",
+                            "client=${client.clientName} reason=session_id_missing",
+                        )
+                    } else {
+                        Timber.tag(logTag).d("Lazily generating PoToken for fallback web client: ${client.clientName}")
+                        try {
+                            poToken = poTokenGenerator.getWebClientPoToken(videoId, sessionId)
+                            if (poToken == null) {
+                                PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                                    "POTOKEN_UNAVAILABLE",
+                                    "client=${client.clientName} reason=generator_unavailable",
+                                )
+                            }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                                "POTOKEN_FAILED",
+                                "client=${client.clientName} type=${e::class.simpleName}",
+                            )
+                            Timber.tag(logTag).e("Lazy PoToken generation failed type=${e::class.java.simpleName}")
+                        }
                     }
                 }
 
@@ -624,6 +673,12 @@ object YTPlayerUtils {
         )
         val finalSource = selectedStreamSource?.name ?: "UNKNOWN"
         val hasStreamingPoToken = Uri.parse(streamUrl).getQueryParameter("pot") != null
+        if (finalStreamClient.useWebPoTokens && !hasStreamingPoToken) {
+            PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                "WEB_STREAM_WITHOUT_POT",
+                "client=${finalStreamClient.clientName}",
+            )
+        }
         PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
             "STREAM_CANDIDATE",
             "${finalStreamClient.clientName}/${finalStreamClient.clientVersion} " +

@@ -67,12 +67,13 @@ data class YouTubeClient(
 
         val WEB_CREATOR = YouTubeClient(
             clientName = "WEB_CREATOR",
-            clientVersion = "1.20260213.00.00",
+            clientVersion = "1.20260708.06.00",
             clientId = "62",
             userAgent = USER_AGENT_WEB,
             loginSupported = true,
             loginRequired = true,
             useSignatureTimestamp = true,
+            useWebPoTokens = true,
         )
 
         val TVHTML5 = YouTubeClient(
