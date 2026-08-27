@@ -2610,6 +2610,21 @@ class MusicService :
         )
     }
 
+    private fun downloadCacheCoverage(mediaId: String): DownloadCacheCoverage {
+        val metadataLength = androidx.media3.datasource.cache.ContentMetadata
+            .getContentLength(downloadCache.getContentMetadata(mediaId))
+            .takeIf { it != androidx.media3.common.C.LENGTH_UNSET.toLong() && it > 0L }
+        val spans = downloadCache.getCachedSpans(mediaId)
+        val cachedBytes = spans.sumOf { span -> span.length.coerceAtLeast(0L) }
+        val coversEntireContent = metadataLength != null &&
+            downloadCache.isCached(mediaId, 0L, metadataLength)
+        return classifyDownloadCacheCoverage(
+            contentLength = metadataLength,
+            cachedBytes = cachedBytes,
+            coversEntireContent = coversEntireContent,
+        )
+    }
+
     private fun playbackNetworkType(): String {
         val network = connectivityManager.activeNetwork ?: return "offline"
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return "unknown"
@@ -3599,9 +3614,8 @@ class MusicService :
             val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId) ||
                 forceStreamResolution.contains(mediaId)
 
-            val cachedLength = androidx.media3.datasource.cache.ContentMetadata.getContentLength(downloadCache.getContentMetadata(mediaId))
-                .takeIf { it != androidx.media3.common.C.LENGTH_UNSET.toLong() } ?: -1L
-            val isFullyDownloaded = cachedLength > 0 && downloadCache.isCached(mediaId, 0, cachedLength)
+            val downloadCoverage = downloadCacheCoverage(mediaId)
+            val isFullyDownloaded = downloadCoverage.state == DownloadCacheState.Full
 
             val activeQualityInCache = streamRecovery.activeQuality(mediaId)?.let {
                 runCatching { com.auriqo.music.constants.AudioQuality.valueOf(it) }.getOrNull()
@@ -3610,7 +3624,12 @@ class MusicService :
             val streamKey = streamKey(mediaId, lockedQuality)
             val trace = PlaybackDiagnostics.currentFor(mediaId)
             trace?.resolutionRequested(mediaId, lockedQuality.name)
-
+            if (downloadCoverage.state == DownloadCacheState.Partial) {
+                trace?.breadcrumb(
+                    "DOWNLOAD_CACHE_PARTIAL",
+                    "bytes=${downloadCoverage.cachedBytes} total=${downloadCoverage.contentLength ?: -1L}",
+                )
+            }
 
             if (!shouldBypassCache) {
                 if (isFullyDownloaded) {
@@ -4896,16 +4915,31 @@ class MusicService :
         val trace = PlaybackDiagnostics.startResolution(mediaId, "queue_lookahead_p$priority")
         try {
             val streamKey = streamKey(mediaId, quality)
-            val isFullyDownloaded = downloadCache.getCachedSpans(mediaId).isNotEmpty()
+            val downloadCoverage = downloadCacheCoverage(mediaId)
             val cached = streamRecovery.cachedStream(streamKey)
-            if (isFullyDownloaded) {
-                trace.breadcrumb("DOWNLOAD_CACHE_HIT", "preload")
+            if (downloadCoverage.state == DownloadCacheState.Full) {
+                trace.breadcrumb(
+                    "DOWNLOAD_CACHE_HIT",
+                    "preload bytes=${downloadCoverage.cachedBytes}",
+                )
             } else if (cached != null) {
+                if (downloadCoverage.state == DownloadCacheState.Partial) {
+                    trace.breadcrumb(
+                        "DOWNLOAD_CACHE_PARTIAL",
+                        "preload bytes=${downloadCoverage.cachedBytes} total=${downloadCoverage.contentLength ?: -1L}",
+                    )
+                }
                 cached.itag?.let { selectedFormatItags[mediaId] = it }
                 trace.resolutionCacheHit(cached.expiresAtMs - System.currentTimeMillis())
                 trace.streamSelected(cached.itag, cached.mimeType, cached.bitrate)
                 warmupNextTrackBytes(mediaId, cached, priority, trace)
             } else {
+                if (downloadCoverage.state == DownloadCacheState.Partial) {
+                    trace.breadcrumb(
+                        "DOWNLOAD_CACHE_PARTIAL",
+                        "preload bytes=${downloadCoverage.cachedBytes} total=${downloadCoverage.contentLength ?: -1L}",
+                    )
+                }
                 trace.resolutionRequested(mediaId, quality.name)
                 trace.resolutionCacheMiss("preload")
                 Timber.tag(TAG).d("Preloading stream priority=$priority")
