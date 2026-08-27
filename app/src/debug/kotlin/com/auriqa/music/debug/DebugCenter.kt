@@ -336,6 +336,7 @@ private fun LiveTraceCard(
             }
         }
         selected?.let { trace ->
+            TraceSummaryHeader(trace = trace, historical = historical)
             KeyValue("view", if (historical) "HISTORICAL" else "ACTIVE")
             KeyValue("classification", trace.classification.name)
             KeyValue("resolver path", trace.resolverPath)
@@ -353,6 +354,108 @@ private fun LiveTraceCard(
             KeyValue("dominant stage", trace.dominantStage ?: "N/A")
             KeyValue("last event", trace.lastEvent?.type ?: "N/A")
         }
+    }
+}
+
+@Composable
+private fun TraceSummaryHeader(
+    trace: DebugTraceSnapshot,
+    historical: Boolean,
+) {
+    val latencyColor = when {
+        trace.failure != null -> MaterialTheme.colorScheme.error
+        trace.slow -> MaterialTheme.colorScheme.tertiary
+        trace.tapToFirstAudioMs != null -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                trace.traceId,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontFamily = FontFamily.Monospace,
+            )
+            Text(
+                trace.tapToFirstAudioMs?.let { "${it} ms" } ?: "N/A",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = latencyColor,
+                fontFamily = FontFamily.Monospace,
+            )
+            Text(
+                "tap to FIRST_AUDIO",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        trace.failure?.let { failure ->
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "TERMINAL",
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Text(
+                    failure.stableCode,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 2,
+                    textAlign = TextAlign.End,
+                )
+            }
+        }
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        TraceBadge(
+            text = if (historical) "HISTORICAL" else "ACTIVE",
+            emphasized = !historical,
+        )
+        TraceBadge(
+            text = trace.classification.name,
+            emphasized = trace.classification != DebugPerformanceClass.UNKNOWN,
+        )
+        if (trace.resolverPath != "N/A") TraceBadge(trace.resolverPath)
+        trace.streamClient?.let { TraceBadge(it) }
+        TraceBadge(if (trace.playerJsUsed) "PLAYER JS" else "JSLESS")
+        trace.poTokenAttached?.let { TraceBadge(if (it) "POT YES" else "POT NO") }
+    }
+    Spacer(Modifier.height(6.dp))
+}
+
+@Composable
+private fun TraceBadge(
+    text: String,
+    emphasized: Boolean = false,
+) {
+    Surface(
+        color = if (emphasized) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        contentColor = if (emphasized) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        shape = RoundedCornerShape(999.dp),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
     }
 }
 
