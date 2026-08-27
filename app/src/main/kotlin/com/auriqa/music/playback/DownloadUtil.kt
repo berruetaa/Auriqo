@@ -74,6 +74,8 @@ constructor(
         val url: String,
         val expiresAtMs: Long,
         val userAgent: String,
+        val sessionGeneration: Long,
+        val networkHandle: Long?,
     )
 
     private val songUrlCache = ConcurrentHashMap<String, CachedDownloadUrl>()
@@ -184,8 +186,14 @@ constructor(
         ) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
 
+            val currentSessionGeneration = YouTube.streamContextGeneration
+            val currentNetworkHandle = connectivityManager.activeNetwork?.networkHandle
             songUrlCache["${mediaId}_${downloadQuality.value.name}"]
-                ?.takeIf { it.expiresAtMs > System.currentTimeMillis() + DOWNLOAD_URL_SAFETY_MARGIN_MS }
+                ?.takeIf {
+                    it.expiresAtMs > System.currentTimeMillis() + DOWNLOAD_URL_SAFETY_MARGIN_MS &&
+                        it.sessionGeneration == currentSessionGeneration &&
+                        it.networkHandle == currentNetworkHandle
+                }
                 ?.let {
                 return@Factory dataSpec.buildUpon()
                     .setUri(it.url.toUri())
@@ -215,6 +223,8 @@ constructor(
                 url = streamUrl,
                 expiresAtMs = System.currentTimeMillis() + playbackData.streamExpiresInSeconds * 1000L,
                 userAgent = playbackData.streamUserAgent,
+                sessionGeneration = YouTube.streamContextGeneration,
+                networkHandle = connectivityManager.activeNetwork?.networkHandle,
             )
             dataSpec.buildUpon()
                 .setUri(streamUrl.toUri())

@@ -119,6 +119,11 @@ object YTPlayerUtils {
 
     internal fun shouldApplyNTransform(source: StreamUrlSource, url: String): Boolean =
         source == StreamUrlSource.RawPlayer && RAW_N_PARAMETER.containsMatchIn(url)
+
+    internal fun shouldDeferPrimaryValidationToMedia3(
+        clientIndex: Int,
+        validatePrimaryCandidate: Boolean,
+    ): Boolean = clientIndex == -1 && !validatePrimaryCandidate
     
     suspend fun playerResponseForPlayback(
         videoId: String,
@@ -145,6 +150,7 @@ object YTPlayerUtils {
             knownTitle,
             excludedItags,
             skipPrimaryClient,
+            validatePrimaryCandidate = isDownload,
         )
         val result = if (firstAttempt.isFailure && YouTube.cookie == null) {
             Timber.tag(TAG).w("Playback failed for guest. Rotating session and retrying...")
@@ -160,6 +166,7 @@ object YTPlayerUtils {
                 knownTitle,
                 excludedItags,
                 skipPrimaryClient,
+                validatePrimaryCandidate = isDownload,
             )
             retryResult.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
             retryResult
@@ -185,6 +192,7 @@ object YTPlayerUtils {
         knownTitle: String? = null,
         excludedItags: Set<Int> = emptySet(),
         skipPrimaryClient: Boolean = false,
+        validatePrimaryCandidate: Boolean = false,
     ): Result<PlaybackData> = runCatching {
         Timber.tag(logTag).d("Fetching player response for videoId: $videoId, playlistId: $playlistId")
         PlaybackLogManager.log(PlaybackLogLevel.INFO, "Resolving playback data", "Video: $videoId")
@@ -541,18 +549,23 @@ object YTPlayerUtils {
                 
                 val isPrivatelyOwned = streamPlayerResponse.videoDetails?.musicVideoType == "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
 
-                if (isPrivatelyOwned) {
+                if (isPrivatelyOwned && !validatePrimaryCandidate) {
                     selectedStreamClient = currentClient
-                    Timber.tag(logTag).d("Skipping validation for privately owned track: ${currentClient.clientName}")
+                    Timber.tag(logTag).d("Skipping validation for privately owned interactive playback: ${currentClient.clientName}")
                     PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
                         "STREAM_CLIENT_SELECTED",
-                        "${currentClient.clientName}/${currentClient.clientVersion} private=true",
+                        "${currentClient.clientName}/${currentClient.clientVersion} private=true validation=media3",
                     )
                     Log.i(TAG, "Playback: client=${currentClient.clientName}, videoId=$videoId, private=true")
                     break
                 }
 
-                if (clientIndex == -1) {
+                if (
+                    shouldDeferPrimaryValidationToMedia3(
+                        clientIndex = clientIndex,
+                        validatePrimaryCandidate = validatePrimaryCandidate,
+                    )
+                ) {
                     // The normal path should pay for one request: Media3's real GET is the
                     // authoritative stream check. A speculative HEAD here duplicated DNS/TLS
                     // and delayed cold start; rejected URLs are classified and recovered by the
@@ -566,6 +579,13 @@ object YTPlayerUtils {
                     )
                     Log.i(TAG, "Playback: client=${currentClient.clientName}, videoId=$videoId (validation deferred to Media3)")
                     break
+                }
+
+                if (clientIndex == -1 && validatePrimaryCandidate) {
+                    PlaybackDiagnostics.currentFor(videoId)?.breadcrumb(
+                        "STREAM_VALIDATION_REQUIRED",
+                        "main_client reason=download",
+                    )
                 }
 
                 if (validateStatus(streamUrl!!, currentClient)) {
